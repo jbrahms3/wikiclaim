@@ -33,8 +33,7 @@ income, and compete on net worth. Everyone starts with **250 credits**.
 
 ### Run it
 
-Requires Node.js 18+ (uses built-in `fetch`). No database engine, no native
-dependencies.
+Requires Node.js 18+ (uses built-in `fetch`).
 
 ```bash
 cd web
@@ -42,7 +41,10 @@ npm install
 npm start          # http://localhost:3000
 ```
 
-See [`web/README.md`](web/README.md) for the API reference and architecture.
+With no `DATABASE_URL` it uses a local JSON file (zero setup); set
+`DATABASE_URL` to use Postgres. Deployable to Railway with a Postgres plugin —
+see [`web/README.md`](web/README.md) for the storage backends, Railway steps,
+API reference, and architecture.
 
 ---
 

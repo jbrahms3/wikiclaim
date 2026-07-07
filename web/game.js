@@ -50,21 +50,24 @@ export async function settleHolding(holding) {
     cursor = addDaysUTC(cursor, 1);
   }
 
-  holding.lastSettledDate = fmtDate(latest);
-  holding.totalEarned = (holding.totalEarned || 0) + earned;
-  store.saveHolding(holding);
+  const newDate = fmtDate(latest);
+  // Compare-and-set on the old settle date: if a concurrent request already
+  // settled this window, applied === false and we must not credit again.
+  const applied = await store.applySettlement(
+    holding.id,
+    holding.lastSettledDate,
+    newDate,
+    earned
+  );
+  if (!applied) return 0;
 
-  if (earned > 0) {
-    const owner = store.getUser(holding.userId);
-    owner.credits += earned;
-    store.saveUser(owner);
-  }
+  if (earned > 0) await store.addCredits(holding.userId, earned);
   return earned;
 }
 
 /** Settle every holding for a user. Returns total credits earned this pass. */
 export async function settleUser(userId) {
-  const holdings = store.holdingsForUser(userId);
+  const holdings = await store.holdingsForUser(userId);
   let total = 0;
   for (const h of holdings) {
     try {
@@ -82,8 +85,8 @@ export async function settleUser(userId) {
  */
 export async function portfolio(userId) {
   await settleUser(userId);
-  const user = store.getUser(userId);
-  const holdings = store.holdingsForUser(userId);
+  const user = await store.getUser(userId);
+  const holdings = await store.holdingsForUser(userId);
 
   const items = [];
   let holdingsValue = 0;
@@ -119,20 +122,20 @@ export function publicUser(u) {
 
 /** Buy a page. Throws Error with a user-facing message on failure. */
 export async function buyPage(userId, { project, article, displayTitle, lang }) {
-  const user = store.getUser(userId);
-  if (store.findHolding(userId, project, article)) {
+  if (await store.findHolding(userId, project, article)) {
     throw new Error("You already own this page.");
   }
   const price = await getPagePrice(project, article, { force: true });
   const cost = price.avgViews;
-  if (user.credits < cost) {
+
+  // Atomic: debit only if the balance can cover it (no read-then-write race).
+  const creditsLeft = await store.tryDebit(userId, cost);
+  if (creditsLeft === null) {
+    const user = await store.getUser(userId);
     throw new Error(
-      `Not enough credits: costs ${cost}, you have ${user.credits}.`
+      `Not enough credits: costs ${cost}, you have ${user ? user.credits : 0}.`
     );
   }
-
-  user.credits -= cost;
-  store.saveUser(user);
 
   const today = fmtDate(latestAvailableDate());
   const holding = {
@@ -150,33 +153,32 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
     lastSettledDate: today,
     totalEarned: 0,
   };
-  store.saveHolding(holding);
-  return { holding, cost, creditsLeft: user.credits };
+  await store.createHolding(holding);
+  return { holding, cost, creditsLeft };
 }
 
 /** Sell a page back to the market at its current price. */
 export async function sellPage(userId, holdingId) {
-  const holding = store.getHolding(holdingId);
+  const holding = await store.getHolding(holdingId);
   if (!holding || holding.userId !== userId) {
     throw new Error("You don't own that page.");
   }
   const price = await getPagePrice(holding.project, holding.article);
   const proceeds = price.avgViews;
 
-  const user = store.getUser(userId);
-  user.credits += proceeds;
-  store.saveUser(user);
-  store.deleteHolding(holdingId);
+  // Remove first, then credit — so a double-click can't sell the same page twice.
+  await store.deleteHolding(holdingId);
+  const creditsLeft = await store.addCredits(userId, proceeds);
 
-  return { proceeds, creditsLeft: user.credits };
+  return { proceeds, creditsLeft };
 }
 
 /** Leaderboard by net worth (credits + current value of all holdings). */
 export async function leaderboard() {
-  const users = store.allUsers();
+  const users = await store.allUsers();
   const rows = [];
   for (const u of users) {
-    const holdings = store.holdingsForUser(u.id);
+    const holdings = await store.holdingsForUser(u.id);
     let value = 0;
     for (const h of holdings) {
       const price = await getPagePrice(h.project, h.article);

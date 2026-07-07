@@ -29,7 +29,7 @@ climb the shared net-worth leaderboard.
 - **Net worth** = credits + current value of all your pages. The leaderboard
   ranks everyone by net worth.
 
-## Run it
+## Run it locally
 
 Requires Node.js 18+ (uses built-in `fetch`). From this `web/` folder:
 
@@ -41,17 +41,53 @@ npm start
 Then open <http://localhost:3000>, sign up, and start trading. Set a custom
 port with `PORT=8080 npm start`.
 
+With no `DATABASE_URL` set, the app stores everything in a local JSON file
+(`data/db.json`) — zero setup. Set `DATABASE_URL` to use Postgres instead.
+
+## Storage backends
+
+The storage backend is chosen at startup from the environment:
+
+- **No `DATABASE_URL`** → JSON file at `data/db.json`. Great for local dev.
+- **`DATABASE_URL` set** → Postgres. Tables are created automatically on boot.
+
+Both implement the same async interface (`db/json-store.js` and `db/pg-store.js`,
+selected by `store.js`), so nothing else in the app changes between them.
+
+SSL is automatic: off for `localhost` and Railway's private network
+(`*.railway.internal`), on otherwise. Override with `DATABASE_SSL=true|false`.
+See `.env.example`.
+
+## Deploy to Railway
+
+1. **Create the project** — in Railway, *New Project → Deploy from GitHub repo*
+   and pick this repo.
+2. **Point the service at `web/`** — in the service's *Settings → Root
+   Directory*, set `web`. Railway then uses `web/package.json` and
+   `web/railway.json`.
+3. **Add Postgres** — *New → Database → Add PostgreSQL*.
+4. **Wire the connection** — in the app service's *Variables*, add:
+   ```
+   DATABASE_URL = ${{Postgres.DATABASE_URL}}
+   ```
+   Railway resolves that to the Postgres plugin's connection string (private
+   network, so no SSL needed — the app detects this automatically).
+5. **Deploy** — Railway builds with Nixpacks, runs `npm start`, and health-checks
+   `/api/leaderboard`. On first boot the app creates its tables. Open the
+   generated URL and play.
+
 ## How it's built
 
-No database engine and no native dependencies, so it installs cleanly on any
-platform.
+No native dependencies beyond `pg`, so it installs cleanly on any platform.
 
 - `server.js` — Express app: static hosting, JSON API, cookie/token auth.
 - `game.js` — game rules: buying, selling, per-day settlement, portfolio,
-  leaderboard.
+  leaderboard. Uses atomic credit updates and a compare-and-set on settlement
+  so concurrent requests can't double-credit.
 - `wikimedia.js` — Wikipedia article search + pricing + daily pageview fetch.
-- `store.js` — tiny JSON-file-backed data store (`data/db.json`), persisted on
-  every mutation.
+- `store.js` — backend selector (JSON vs Postgres).
+- `db/json-store.js` — JSON-file store for local dev (`data/db.json`).
+- `db/pg-store.js` — Postgres store (auto-creates schema, atomic ops).
 - `public/` — the single-page front end (`index.html`, `app.js`, `styles.css`).
 
 ### API (all JSON)
@@ -74,6 +110,7 @@ platform.
 - Passwords are hashed with bcrypt. Sessions are opaque tokens in an
   HttpOnly cookie. This is a game demo, not hardened production auth — put it
   behind HTTPS and add rate limiting before exposing it publicly.
-- Data lives in `data/db.json`. Delete that file to reset the whole game.
+- Reset the game by deleting `data/db.json` (JSON mode) or clearing the
+  Postgres tables (`users`, `holdings`, `sessions`, `page_cache`).
 - Pageview prices are cached for 6 hours to be a good API citizen, so a
   page's price won't change more than a few times a day.

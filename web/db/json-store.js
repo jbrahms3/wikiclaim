@@ -1,0 +1,156 @@
+// JSON-file-backed store. Used for local development when DATABASE_URL is not
+// set. In-memory state persisted to disk on every mutation. No native deps.
+//
+// Implements the same async interface as pg-store.js so game/server code is
+// backend-agnostic.
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(__dirname, "..", "data");
+const DB_PATH = path.join(DATA_DIR, "db.json");
+
+const EMPTY = { users: {}, holdings: {}, sessions: {}, pageCache: {} };
+
+// Records are flat objects; return shallow copies from reads so callers can't
+// accidentally mutate stored state by reference (matches the Postgres backend,
+// which always returns fresh row objects).
+const copy = (o) => (o ? { ...o } : o);
+
+function load() {
+  try {
+    return { ...structuredClone(EMPTY), ...JSON.parse(fs.readFileSync(DB_PATH, "utf8")) };
+  } catch {
+    return structuredClone(EMPTY);
+  }
+}
+
+let db = load();
+
+let writeQueued = false;
+function persist() {
+  if (writeQueued) return;
+  writeQueued = true;
+  queueMicrotask(() => {
+    writeQueued = false;
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      const tmp = DB_PATH + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+      fs.renameSync(tmp, DB_PATH);
+    } catch (err) {
+      console.error("Failed to persist DB:", err);
+    }
+  });
+}
+
+export function createJsonStore() {
+  return {
+    kind: "json",
+
+    async init() {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    },
+
+    // --- users ---
+    async getUser(id) {
+      return copy(db.users[id]) || null;
+    },
+    async findUserByName(username) {
+      return (
+        copy(
+          Object.values(db.users).find(
+            (u) => u.username.toLowerCase() === username.toLowerCase()
+          )
+        ) || null
+      );
+    },
+    async allUsers() {
+      return Object.values(db.users).map(copy);
+    },
+    async createUser(user) {
+      db.users[user.id] = user;
+      persist();
+      return user;
+    },
+    // Atomically subtract `amount` iff the balance can cover it.
+    // Returns the new balance, or null if funds are insufficient.
+    async tryDebit(userId, amount) {
+      const u = db.users[userId];
+      if (!u || u.credits < amount) return null;
+      u.credits -= amount;
+      persist();
+      return u.credits;
+    },
+    async addCredits(userId, delta) {
+      const u = db.users[userId];
+      if (!u) return null;
+      u.credits += delta;
+      persist();
+      return u.credits;
+    },
+
+    // --- sessions ---
+    async createSession(token, userId) {
+      db.sessions[token] = userId;
+      persist();
+      return token;
+    },
+    async userIdForToken(token) {
+      return db.sessions[token] || null;
+    },
+    async destroySession(token) {
+      delete db.sessions[token];
+      persist();
+    },
+
+    // --- holdings ---
+    async holdingsForUser(userId) {
+      return Object.values(db.holdings)
+        .filter((h) => h.userId === userId)
+        .map(copy);
+    },
+    async findHolding(userId, project, article) {
+      return (
+        copy(
+          Object.values(db.holdings).find(
+            (h) => h.userId === userId && h.project === project && h.article === article
+          )
+        ) || null
+      );
+    },
+    async getHolding(id) {
+      return copy(db.holdings[id]) || null;
+    },
+    async createHolding(h) {
+      db.holdings[h.id] = { ...h };
+      persist();
+      return h;
+    },
+    // Compare-and-set settlement: only apply if lastSettledDate is unchanged,
+    // so two concurrent settlements can't double-credit. Returns true if applied.
+    async applySettlement(id, expectedLast, newLast, earnedDelta) {
+      const h = db.holdings[id];
+      if (!h || h.lastSettledDate !== expectedLast) return false;
+      h.lastSettledDate = newLast;
+      h.totalEarned = (h.totalEarned || 0) + earnedDelta;
+      persist();
+      return true;
+    },
+    async deleteHolding(id) {
+      delete db.holdings[id];
+      persist();
+    },
+
+    // --- page price cache ---
+    async getPageCache(key) {
+      return copy(db.pageCache[key]) || null;
+    },
+    async setPageCache(entry) {
+      db.pageCache[entry.key] = { ...entry };
+      persist();
+      return entry;
+    },
+  };
+}

@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { store, uid } from "./store.js";
+import { store, uid, token, initStore } from "./store.js";
 import {
   startingCredits,
   publicUser,
@@ -34,18 +34,23 @@ function parseCookies(req) {
 }
 
 app.use((req, res, next) => {
-  const cookies = parseCookies(req);
-  const t = cookies[COOKIE];
-  req.userId = t ? store.userIdForToken(t) : null;
-  next();
+  const t = parseCookies(req)[COOKIE];
+  Promise.resolve(t ? store.userIdForToken(t) : null)
+    .then((userId) => {
+      req.userId = userId;
+      next();
+    })
+    .catch(next);
 });
 
-function requireAuth(req, res, next) {
-  if (!req.userId || !store.getUser(req.userId)) {
-    return res.status(401).json({ error: "Not signed in." });
-  }
-  next();
-}
+const requireAuth = (req, res, next) => {
+  Promise.resolve(req.userId ? store.getUser(req.userId) : null)
+    .then((user) => {
+      if (!user) return res.status(401).json({ error: "Not signed in." });
+      next();
+    })
+    .catch(next);
+};
 
 function setSessionCookie(res, token) {
   res.setHeader(
@@ -73,17 +78,17 @@ app.post(
       throw new Error("Username may only contain letters, numbers, and underscores.");
     }
     if (password.length < 6) throw new Error("Password must be at least 6 characters.");
-    if (store.findUserByName(username)) throw new Error("That username is taken.");
+    if (await store.findUserByName(username)) throw new Error("That username is taken.");
 
-    const user = store.saveUser({
+    const user = await store.createUser({
       id: uid(),
       username,
       passwordHash: bcrypt.hashSync(password, 10),
       credits: startingCredits(),
       createdAt: Date.now(),
     });
-    const token = store.createSession(user.id);
-    setSessionCookie(res, token);
+    const t = await store.createSession(token(), user.id);
+    setSessionCookie(res, t);
     res.json({ user: publicUser(user) });
   })
 );
@@ -93,28 +98,33 @@ app.post(
   wrap(async (req, res) => {
     const username = String(req.body.username || "").trim();
     const password = String(req.body.password || "");
-    const user = store.findUserByName(username);
+    const user = await store.findUserByName(username);
     if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
       throw new Error("Invalid username or password.");
     }
-    const token = store.createSession(user.id);
-    setSessionCookie(res, token);
+    const t = await store.createSession(token(), user.id);
+    setSessionCookie(res, t);
     res.json({ user: publicUser(user) });
   })
 );
 
-app.post("/api/logout", (req, res) => {
-  const t = parseCookies(req)[COOKIE];
-  if (t) store.destroySession(t);
-  res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Path=/; Max-Age=0`);
-  res.json({ ok: true });
-});
+app.post(
+  "/api/logout",
+  wrap(async (req, res) => {
+    const t = parseCookies(req)[COOKIE];
+    if (t) await store.destroySession(t);
+    res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Path=/; Max-Age=0`);
+    res.json({ ok: true });
+  })
+);
 
 // --- game routes ---
 app.get(
   "/api/me",
   wrap(async (req, res) => {
-    if (!req.userId || !store.getUser(req.userId)) return res.json({ user: null });
+    if (!req.userId || !(await store.getUser(req.userId))) {
+      return res.json({ user: null });
+    }
     res.json(await portfolio(req.userId));
   })
 );
@@ -174,6 +184,13 @@ app.get(
   })
 );
 
-app.listen(PORT, () => {
-  console.log(`WikiClaim running at http://localhost:${PORT}`);
-});
+initStore()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`WikiClaim running at http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("Failed to initialize store:", err);
+    process.exit(1);
+  });
