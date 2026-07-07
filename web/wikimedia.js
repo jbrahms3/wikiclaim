@@ -96,18 +96,19 @@ export async function fetchDailyPageviews(project, article, start, end) {
     article
   )}/daily/${s}/${e}`;
 
-  // 404 and 429 both showed up - even for isolated, non-concurrent requests
-  // seconds apart - for articles that definitely have data, then succeeded
-  // moments later. Looks like transient edge/CDN cache population on
-  // Wikimedia's side for less-common URL permutations, not pure rate
-  // limiting. Every article we ever price here is either curated or a real
-  // Wikipedia search result, so a genuinely-nonexistent title basically
-  // never reaches this path - false "no data" is far costlier than a few
-  // extra seconds of retrying.
-  const RETRY_DELAYS_MS = [500, 1500, 3000, 5000];
+  // Wikimedia's edge cache sometimes serves a bogus 404 for articles that
+  // have data (confirmed live: Star_Wars_(film) 404'd while the same URL
+  // with a junk query param returned 200), and that 404 is itself cached
+  // with s-maxage=600 - so plain retries of the same URL just replay the
+  // poisoned cache entry for up to 10 minutes. Retries therefore append a
+  // throwaway query param: the query string is part of the edge cache key,
+  // which punches through to the real backend. First attempt stays clean so
+  // we still benefit from the cache when it's healthy.
+  const RETRY_DELAYS_MS = [300, 1000, 2500];
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    const u = attempt === 0 ? url : `${url}?cachebust=${Date.now()}_${attempt}`;
     const res = await withPageviewsLimit(() =>
-      fetch(url, { headers: { Accept: "application/json", "User-Agent": UA } })
+      fetch(u, { headers: { Accept: "application/json", "User-Agent": UA } })
     );
 
     if (res.ok) {
