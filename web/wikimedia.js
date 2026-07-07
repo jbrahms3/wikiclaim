@@ -87,7 +87,7 @@ export async function fetchDailyPageviews(project, article, start, end) {
  */
 export async function getPagePrice(project, article, { force = false } = {}) {
   const key = pageKey(project, article);
-  const cached = store.getPageCache(key);
+  const cached = await store.getPageCache(key);
   if (!force && cached && Date.now() - cached.updatedAt < PRICE_CACHE_MS) {
     return cached;
   }
@@ -99,17 +99,74 @@ export async function getPagePrice(project, article, { force = false } = {}) {
   let sum = 0;
   for (const v of views.values()) sum += v;
   const avg = Math.max(1, Math.round(sum / PRICE_WINDOW_DAYS));
+  const latestViews = views.get(formatYYYYMMDD(end)) ?? avg;
+  // "Change" = today vs. the 30-day average it's priced at, like a stock's
+  // move relative to a moving average. Bounded away from #DIV/0 by the avg floor.
+  const changePct = ((latestViews - avg) / avg) * 100;
 
   const entry = {
     key,
     project,
     article,
     avgViews: avg,
+    latestViews,
+    changePct: Math.round(changePct * 10) / 10,
     windowDays: PRICE_WINDOW_DAYS,
     updatedAt: Date.now(),
   };
-  store.setPageCache(entry);
+  await store.setPageCache(entry);
   return entry;
+}
+
+/**
+ * Daily view counts for the last `days` available days, oldest first —
+ * chart-ready. Does not use the price cache (short-lived, chart-specific).
+ */
+export async function getArticleHistory(project, article, days = 30) {
+  const end = latestAvailableDate();
+  const start = addDaysUTC(end, -(days - 1));
+  const views = await fetchDailyPageviews(project, article, start, end);
+
+  const out = [];
+  let cursor = start;
+  while (cursor <= end) {
+    const key = formatYYYYMMDD(cursor);
+    out.push({ date: key, views: views.get(key) || 0 });
+    cursor = addDaysUTC(cursor, 1);
+  }
+  return out;
+}
+
+// A small curated set of high-traffic articles to show as a "market ticker",
+// the way a finance dashboard shows a strip of well-known stock symbols.
+export const TRENDING_ARTICLES = [
+  "Cat",
+  "Dog",
+  "Artificial_intelligence",
+  "ChatGPT",
+  "Bitcoin",
+  "Elon_Musk",
+  "Taylor_Swift",
+  "Elizabeth_II",
+];
+
+export async function getTrending() {
+  const items = await Promise.all(
+    TRENDING_ARTICLES.map(async (article) => {
+      try {
+        const p = await getPagePrice("en.wikipedia", article);
+        return {
+          article,
+          title: article.replace(/_/g, " "),
+          price: p.avgViews,
+          changePct: p.changePct,
+        };
+      } catch {
+        return null;
+      }
+    })
+  );
+  return items.filter(Boolean);
 }
 
 /**

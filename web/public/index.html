@@ -35,52 +35,117 @@
 
     <!-- Game view -->
     <section id="game-view" class="view" hidden>
-      <header class="topbar">
-        <div class="brand small">
-          <span class="brand-mark">W</span>
-          <span>WikiClaim</span>
-        </div>
-        <div class="stats">
-          <div class="stat">
-            <span class="stat-label">Credits</span>
-            <span class="stat-value" id="stat-credits">0</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">Net worth</span>
-            <span class="stat-value gold" id="stat-networth">0</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">Pages</span>
-            <span class="stat-value" id="stat-pages">0</span>
-          </div>
-        </div>
-        <div class="user-box">
-          <span id="stat-username"></span>
-          <button id="logout-btn" class="ghost">Log out</button>
-        </div>
-      </header>
+      <div class="rail">
+        <span class="rail-mark">W</span>
+        <button class="rail-btn active" data-scroll="hero" title="Overview">
+          <svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6V11h-6v9Zm0-16v5h6V4h-6Z"/></svg>
+        </button>
+        <button class="rail-btn" data-scroll="market" title="Market">
+          <svg viewBox="0 0 24 24"><path d="M5 21V9m7 12V3m7 18v-7"/></svg>
+        </button>
+        <button class="rail-btn" data-scroll="portfolio" title="Your pages">
+          <svg viewBox="0 0 24 24"><path d="M3 7h18v13H3V7Zm0 0 3-4h12l3 4"/></svg>
+        </button>
+        <button class="rail-btn" data-scroll="leaderboard" title="Leaderboard">
+          <svg viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Zm-4 1h4v3a4 4 0 0 1-4-4Zm18 0h-4v3a4 4 0 0 0 4-4Z"/></svg>
+        </button>
+      </div>
 
-      <main class="columns">
-        <div class="col">
-          <h2>Market</h2>
-          <p class="col-hint">Search Wikipedia. Price = average daily views over the last 30 days.</p>
-          <form id="search-form" class="search-form">
-            <input id="search-input" placeholder="Search articles, e.g. Black hole" />
-            <button type="submit" class="primary">Search</button>
-          </form>
-          <ul id="search-results" class="list"></ul>
+      <div class="main">
+        <header class="topbar">
+          <div class="brand small">
+            <span class="brand-mark">W</span>
+            <span>WikiClaim</span>
+          </div>
+          <div class="stats">
+            <div class="stat">
+              <span class="stat-label">Credits</span>
+              <span class="stat-value" id="stat-credits">0</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Net worth</span>
+              <span class="stat-value accent" id="stat-networth">0</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Pages</span>
+              <span class="stat-value" id="stat-pages">0</span>
+            </div>
+          </div>
+          <div class="user-box">
+            <span class="avatar" id="stat-avatar"></span>
+            <span id="stat-username"></span>
+            <button id="logout-btn" class="ghost">Log out</button>
+          </div>
+        </header>
 
-          <h2 class="mt">Leaderboard</h2>
-          <ol id="leaderboard" class="leaderboard"></ol>
+        <div class="ticker-strip" id="ticker">
+          <span class="ticker-loading">Loading trending pages…</span>
         </div>
 
-        <div class="col">
-          <h2>Your pages</h2>
-          <p class="col-hint">Each real calendar day, every page pays you its view count. Settled automatically when you load.</p>
-          <ul id="holdings" class="list"></ul>
-          <p id="holdings-empty" class="empty" hidden>You don't own any pages yet. Buy one from the market.</p>
-        </div>
-      </main>
+        <main class="content">
+          <!-- Hero: selected article detail + chart -->
+          <section id="hero" class="hero-panel">
+            <div class="hero-top">
+              <span class="hero-icon" id="hero-icon">?</span>
+              <div class="hero-titles">
+                <div class="hero-name" id="hero-title">Pick an article</div>
+                <div class="hero-sub" id="hero-sub">Search the market or click a trending page to see it here.</div>
+              </div>
+              <div class="hero-price-block">
+                <div class="hero-price" id="hero-price">—</div>
+                <div class="hero-change" id="hero-change"></div>
+              </div>
+              <button class="primary hero-action" id="hero-action" disabled>Select a page</button>
+            </div>
+
+            <div class="hero-body">
+              <div class="chart-card">
+                <div class="chart-head">
+                  <div class="chart-ticker" id="chart-ticker">—</div>
+                  <div class="range-tabs">
+                    <button class="range-tab" data-days="7">7D</button>
+                    <button class="range-tab active" data-days="30">30D</button>
+                    <button class="range-tab" data-days="90">90D</button>
+                  </div>
+                </div>
+                <div id="chart-holder" class="chart-holder">
+                  <div class="chart-empty" id="chart-empty">No article selected yet.</div>
+                </div>
+              </div>
+
+              <div class="details-card">
+                <div class="details-title">Details</div>
+                <dl class="details-list" id="details-list"></dl>
+              </div>
+            </div>
+          </section>
+
+          <div class="grid-columns">
+            <section id="market" class="col">
+              <h2>Market</h2>
+              <p class="col-hint">Search Wikipedia. Price = average daily views over the last 30 days.</p>
+              <form id="search-form" class="search-form">
+                <input id="search-input" placeholder="Search articles, e.g. Black hole" />
+                <button type="submit" class="primary">Search</button>
+              </form>
+              <ul id="search-results" class="list"></ul>
+            </section>
+
+            <section id="portfolio" class="col">
+              <h2>Your pages</h2>
+              <p class="col-hint">Each real calendar day, every page pays you its view count.</p>
+              <ul id="holdings" class="list"></ul>
+              <p id="holdings-empty" class="empty" hidden>You don't own any pages yet. Buy one from the market.</p>
+            </section>
+
+            <section id="leaderboard" class="col">
+              <h2>Leaderboard</h2>
+              <p class="col-hint">Ranked by net worth (credits + page values).</p>
+              <ol id="leaderboard-list" class="leaderboard"></ol>
+            </section>
+          </div>
+        </main>
+      </div>
       <div id="toast" class="toast" hidden></div>
     </section>
   </div>

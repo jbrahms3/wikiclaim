@@ -102,6 +102,13 @@ No native dependencies beyond `pg`, so it installs cleanly on any platform.
 | POST   | `/api/buy`         | Buy a page (auth)                         |
 | POST   | `/api/sell`        | Sell a page (auth)                        |
 | GET    | `/api/leaderboard` | Net-worth ranking                         |
+| GET    | `/api/trending`    | Curated ticker of high-traffic articles   |
+| GET    | `/api/history?article=&days=` | Daily view history for a chart (7-90 days) |
+
+The dashboard UI is a stock-market-style layout: a trending ticker strip,
+a hero panel with a live price chart (7D/30D/90D) for whatever article you
+select — from the ticker, search results, or your holdings — plus market,
+portfolio, and leaderboard columns below.
 
 ## Notes & limitations
 

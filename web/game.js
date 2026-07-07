@@ -102,6 +102,7 @@ export async function portfolio(userId) {
       url: `https://${h.lang}.wikipedia.org/wiki/${h.article}`,
       purchasePrice: h.purchasePrice,
       currentPrice: price.avgViews,
+      changePct: price.changePct,
       totalEarned: h.totalEarned || 0,
       purchasedDate: h.purchasedDate,
     });

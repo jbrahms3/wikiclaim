@@ -12,7 +12,12 @@ import {
   sellPage,
   leaderboard,
 } from "./game.js";
-import { searchArticles, getPagePrice } from "./wikimedia.js";
+import {
+  searchArticles,
+  getPagePrice,
+  getTrending,
+  getArticleHistory,
+} from "./wikimedia.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -141,13 +146,31 @@ app.get(
       results.map(async (r) => {
         try {
           const p = await getPagePrice("en.wikipedia", r.article);
-          return { ...r, price: p.avgViews };
+          return { ...r, price: p.avgViews, changePct: p.changePct };
         } catch {
-          return { ...r, price: null };
+          return { ...r, price: null, changePct: null };
         }
       })
     );
     res.json({ results: priced });
+  })
+);
+
+app.get(
+  "/api/trending",
+  wrap(async (req, res) => {
+    res.json({ items: await getTrending() });
+  })
+);
+
+app.get(
+  "/api/history",
+  wrap(async (req, res) => {
+    const article = String(req.query.article || "");
+    if (!article) throw new Error("Missing article.");
+    const days = Math.min(90, Math.max(7, Number(req.query.days) || 30));
+    const history = await getArticleHistory("en.wikipedia", article, days);
+    res.json({ history });
   })
 );
 
