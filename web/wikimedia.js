@@ -10,6 +10,37 @@ const UA = "WikiClaim/1.0 (https://github.com/local/wikiclaim; game demo)";
 
 const PRICE_WINDOW_DAYS = 30;
 const PRICE_CACHE_MS = 6 * 60 * 60 * 1000; // re-price a page at most every 6h
+// Results that came back with no data at all get a much shorter TTL. Under
+// concurrent load, Wikimedia's pageviews API sometimes returns 404 (rather
+// than 429) for articles that plainly have traffic - so a "no data" result
+// is not fully trustworthy and shouldn't poison the cache for 6 hours if
+// it was actually a transient rate-limit response.
+const EMPTY_CACHE_MS = 3 * 60 * 1000;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Cap how many pageviews requests are in flight at once. Firing 20-30 at
+// once (e.g. pricing every article in the category-index baskets) reliably
+// triggers rate limiting from Wikimedia, which is the root cause above.
+function createLimiter(maxConcurrent) {
+  let active = 0;
+  const queue = [];
+  function pump() {
+    if (active >= maxConcurrent || queue.length === 0) return;
+    active++;
+    const { run, resolve, reject } = queue.shift();
+    run().then(resolve, reject).finally(() => {
+      active--;
+      pump();
+    });
+  }
+  return (run) =>
+    new Promise((resolve, reject) => {
+      queue.push({ run, resolve, reject });
+      pump();
+    });
+}
+const withPageviewsLimit = createLimiter(4);
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -55,7 +86,7 @@ function encodeArticle(article) {
 
 /**
  * Fetch daily view counts (human traffic only) for [start, end] inclusive.
- * Returns Map<"YYYYMMDD", views>. A 404 means "no data" -> empty map.
+ * Returns Map<"YYYYMMDD", views>. A 404 (after retries) means "no data".
  */
 export async function fetchDailyPageviews(project, article, start, end) {
   if (start > end) return new Map();
@@ -65,30 +96,58 @@ export async function fetchDailyPageviews(project, article, start, end) {
     article
   )}/daily/${s}/${e}`;
 
-  const res = await fetch(url, {
-    headers: { Accept: "application/json", "User-Agent": UA },
-  });
-  if (res.status === 404) return new Map();
-  if (!res.ok) {
+  // 404 and 429 both showed up - even for isolated, non-concurrent requests
+  // seconds apart - for articles that definitely have data, then succeeded
+  // moments later. Looks like transient edge/CDN cache population on
+  // Wikimedia's side for less-common URL permutations, not pure rate
+  // limiting. Every article we ever price here is either curated or a real
+  // Wikipedia search result, so a genuinely-nonexistent title basically
+  // never reaches this path - false "no data" is far costlier than a few
+  // extra seconds of retrying.
+  const RETRY_DELAYS_MS = [500, 1500, 3000, 5000];
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    const res = await withPageviewsLimit(() =>
+      fetch(url, { headers: { Accept: "application/json", "User-Agent": UA } })
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      const out = new Map();
+      for (const item of data.items || []) {
+        const day = item.timestamp.slice(0, 8);
+        out.set(day, (out.get(day) || 0) + item.views);
+      }
+      return out;
+    }
+
+    const retryable = res.status === 404 || res.status === 429;
+    if (retryable && attempt < RETRY_DELAYS_MS.length) {
+      await sleep(RETRY_DELAYS_MS[attempt]);
+      continue;
+    }
+    if (res.status === 404) return new Map();
     throw new Error(`Pageviews API ${res.status} for ${project}/${article}`);
   }
-  const data = await res.json();
-  const out = new Map();
-  for (const item of data.items || []) {
-    const day = item.timestamp.slice(0, 8);
-    out.set(day, (out.get(day) || 0) + item.views);
-  }
-  return out;
+  return new Map();
 }
 
 /**
  * Current "market price" of an article = average daily views over the last
  * PRICE_WINDOW_DAYS available days. Cached for a few hours. Minimum price 1.
  */
+// A cached entry with no real signal at all (every one of the last 7 days
+// literally 0, floored to the price minimum) is treated as suspect rather
+// than trusted for the full TTL - see EMPTY_CACHE_MS. spark is the reliable
+// signal here (always computed the same way, no fallback quirks).
+function looksEmpty(entry) {
+  return entry.avgViews <= 1 && entry.spark && entry.spark.every((v) => v === 0);
+}
+
 export async function getPagePrice(project, article, { force = false } = {}) {
   const key = pageKey(project, article);
   const cached = await store.getPageCache(key);
-  if (!force && cached && Date.now() - cached.updatedAt < PRICE_CACHE_MS) {
+  const ttl = cached && looksEmpty(cached) ? EMPTY_CACHE_MS : PRICE_CACHE_MS;
+  if (!force && cached && Date.now() - cached.updatedAt < ttl) {
     return cached;
   }
 
@@ -99,7 +158,10 @@ export async function getPagePrice(project, article, { force = false } = {}) {
   let sum = 0;
   for (const v of views.values()) sum += v;
   const avg = Math.max(1, Math.round(sum / PRICE_WINDOW_DAYS));
-  const latestViews = views.get(formatYYYYMMDD(end)) ?? avg;
+  // Only fall back to the average when we have *some* data but happen to be
+  // missing just the most recent day (publishing lag) - not when the whole
+  // window came back empty, which should read as "0 views", not "avg views".
+  const latestViews = views.size > 0 ? views.get(formatYYYYMMDD(end)) ?? avg : 0;
   // "Change" = today vs. the 30-day average it's priced at, like a stock's
   // move relative to a moving average. Bounded away from #DIV/0 by the avg floor.
   const changePct = ((latestViews - avg) / avg) * 100;
