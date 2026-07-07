@@ -11,7 +11,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
 
-const EMPTY = { users: {}, holdings: {}, sessions: {}, pageCache: {} };
+const EMPTY = {
+  users: {},
+  holdings: {},
+  sessions: {},
+  pageCache: {},
+  watchlist: {}, // "userId::project::article" -> { userId, project, article, displayTitle, addedAt }
+  activity: [], // newest last; capped
+};
 
 // Records are flat objects; return shallow copies from reads so callers can't
 // accidentally mutate stored state by reference (matches the Postgres backend,
@@ -151,6 +158,35 @@ export function createJsonStore() {
       db.pageCache[entry.key] = { ...entry };
       persist();
       return entry;
+    },
+
+    // --- watchlist ---
+    async watchlistForUser(userId) {
+      return Object.values(db.watchlist)
+        .filter((w) => w.userId === userId)
+        .sort((a, b) => b.addedAt - a.addedAt)
+        .map(copy);
+    },
+    async isWatched(userId, project, article) {
+      return !!db.watchlist[`${userId}::${project}::${article}`];
+    },
+    async addWatch(entry) {
+      db.watchlist[`${entry.userId}::${entry.project}::${entry.article}`] = { ...entry };
+      persist();
+    },
+    async removeWatch(userId, project, article) {
+      delete db.watchlist[`${userId}::${project}::${article}`];
+      persist();
+    },
+
+    // --- activity feed ---
+    async logActivity(event) {
+      db.activity.push({ ...event });
+      if (db.activity.length > 300) db.activity = db.activity.slice(-300);
+      persist();
+    },
+    async recentActivity(limit) {
+      return db.activity.slice(-limit).reverse().map(copy);
     },
   };
 }

@@ -104,6 +104,12 @@ export async function getPagePrice(project, article, { force = false } = {}) {
   // move relative to a moving average. Bounded away from #DIV/0 by the avg floor.
   const changePct = ((latestViews - avg) / avg) * 100;
 
+  // Last 7 available days, oldest first — free sparkline data from the same fetch.
+  const spark = [];
+  for (let i = 6; i >= 0; i--) {
+    spark.push(views.get(formatYYYYMMDD(addDaysUTC(end, -i))) || 0);
+  }
+
   const entry = {
     key,
     project,
@@ -111,6 +117,7 @@ export async function getPagePrice(project, article, { force = false } = {}) {
     avgViews: avg,
     latestViews,
     changePct: Math.round(changePct * 10) / 10,
+    spark,
     windowDays: PRICE_WINDOW_DAYS,
     updatedAt: Date.now(),
   };
@@ -120,9 +127,17 @@ export async function getPagePrice(project, article, { force = false } = {}) {
 
 /**
  * Daily view counts for the last `days` available days, oldest first —
- * chart-ready. Does not use the price cache (short-lived, chart-specific).
+ * chart-ready. In-memory cached (30 min) since portfolio charts sum one
+ * series per holding and detail pages re-request on range switches.
  */
+const historyCache = new Map(); // key -> { at, data }
+const HISTORY_CACHE_MS = 30 * 60 * 1000;
+
 export async function getArticleHistory(project, article, days = 30) {
+  const cacheKey = `${project}::${article}::${days}`;
+  const hit = historyCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < HISTORY_CACHE_MS) return hit.data;
+
   const end = latestAvailableDate();
   const start = addDaysUTC(end, -(days - 1));
   const views = await fetchDailyPageviews(project, article, start, end);
@@ -134,6 +149,118 @@ export async function getArticleHistory(project, article, days = 30) {
     out.push({ date: key, views: views.get(key) || 0 });
     cursor = addDaysUTC(cursor, 1);
   }
+  historyCache.set(cacheKey, { at: Date.now(), data: out });
+  return out;
+}
+
+/**
+ * Batch-fetch page thumbnails + short descriptions from the MediaWiki API.
+ * Takes URL-form titles (underscores), returns Map<article, {thumbnail, description}>.
+ * In-memory cached 24h — images and descriptions barely change.
+ */
+const metaCache = new Map(); // article -> { at, meta }
+const META_CACHE_MS = 24 * 60 * 60 * 1000;
+
+export async function getPageMeta(articles) {
+  const result = new Map();
+  const missing = [];
+  for (const a of articles) {
+    const hit = metaCache.get(a);
+    if (hit && Date.now() - hit.at < META_CACHE_MS) result.set(a, hit.meta);
+    else missing.push(a);
+  }
+
+  // MediaWiki caps titles= at 50 per request.
+  for (let i = 0; i < missing.length; i += 50) {
+    const batch = missing.slice(i, i + 50);
+    try {
+      const url =
+        "https://en.wikipedia.org/w/api.php?" +
+        new URLSearchParams({
+          action: "query",
+          prop: "pageimages|description",
+          pithumbsize: "160",
+          titles: batch.map((a) => a.replace(/_/g, " ")).join("|"),
+          redirects: "1",
+          format: "json",
+          origin: "*",
+        });
+      const res = await fetch(url, { headers: { "User-Agent": UA } });
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      // Map normalized/redirected titles back to what we asked for.
+      const back = new Map(); // resolved title -> requested article
+      for (const a of batch) back.set(a.replace(/_/g, " "), a);
+      for (const n of data.query?.normalized || []) {
+        const orig = back.get(n.from);
+        if (orig) back.set(n.to, orig);
+      }
+      for (const r of data.query?.redirects || []) {
+        const orig = back.get(r.from);
+        if (orig) back.set(r.to, orig);
+      }
+
+      for (const page of Object.values(data.query?.pages || {})) {
+        const requested = back.get(page.title);
+        if (!requested) continue;
+        const meta = {
+          thumbnail: page.thumbnail?.source || null,
+          description: page.description || null,
+        };
+        metaCache.set(requested, { at: Date.now(), meta });
+        result.set(requested, meta);
+      }
+    } catch {
+      /* thumbnails are decoration; never fail the caller */
+    }
+  }
+  return result;
+}
+
+/**
+ * Category "indexes" for the header ticker — each is the average price
+ * (30-day avg daily views) of a fixed basket of representative articles,
+ * like a sector index is a basket of stocks. All real pageview data.
+ */
+export const CATEGORY_BASKETS = {
+  Science: ["Black_hole", "Albert_Einstein", "DNA", "Quantum_mechanics"],
+  Technology: ["Artificial_intelligence", "ChatGPT", "Bitcoin", "IPhone"],
+  History: ["World_War_II", "Roman_Empire", "French_Revolution", "Cold_War"],
+  Culture: ["Taylor_Swift", "Minecraft", "Marvel_Cinematic_Universe", "K-pop"],
+  Sports: ["Cristiano_Ronaldo", "Lionel_Messi", "LeBron_James", "Formula_One"],
+  Geography: ["United_States", "India", "Japan", "Earth"],
+};
+
+export async function getCategoryIndexes() {
+  const out = [];
+  await Promise.all(
+    Object.entries(CATEGORY_BASKETS).map(async ([name, basket]) => {
+      const prices = (
+        await Promise.all(
+          basket.map((a) => getPagePrice("en.wikipedia", a).catch(() => null))
+        )
+      ).filter(Boolean);
+      if (!prices.length) return;
+
+      const value = Math.round(
+        prices.reduce((s, p) => s + p.avgViews, 0) / prices.length
+      );
+      const changePct =
+        Math.round(
+          (prices.reduce((s, p) => s + (p.changePct || 0), 0) / prices.length) * 10
+        ) / 10;
+      // Element-wise sum of member sparklines -> index sparkline.
+      const spark = [0, 0, 0, 0, 0, 0, 0];
+      for (const p of prices) {
+        (p.spark || []).forEach((v, i) => (spark[i] += v));
+      }
+      out.push({ name, value, changePct, spark });
+    })
+  );
+  // Promise.all scrambles completion order; keep the declared order.
+  const order = Object.keys(CATEGORY_BASKETS);
+  out.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
   return out;
 }
 
@@ -160,6 +287,8 @@ export async function getTrending() {
           title: article.replace(/_/g, " "),
           price: p.avgViews,
           changePct: p.changePct,
+          latestViews: p.latestViews,
+          spark: p.spark || null,
         };
       } catch {
         return null;

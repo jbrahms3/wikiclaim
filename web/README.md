@@ -102,13 +102,21 @@ No native dependencies beyond `pg`, so it installs cleanly on any platform.
 | POST   | `/api/buy`         | Buy a page (auth)                         |
 | POST   | `/api/sell`        | Sell a page (auth)                        |
 | GET    | `/api/leaderboard` | Net-worth ranking                         |
-| GET    | `/api/trending`    | Curated ticker of high-traffic articles   |
+| GET    | `/api/trending`    | Curated list of high-traffic articles     |
+| GET    | `/api/categories`  | Category indexes (baskets of articles) for the ticker |
 | GET    | `/api/history?article=&days=` | Daily view history for a chart (7-90 days) |
+| GET    | `/api/portfolio-history?days=` | Combined daily views across your holdings (auth) |
+| GET    | `/api/article?article=` | Detail bundle: price, meta, your position, watched (auth) |
+| GET    | `/api/watchlist`   | Your watchlist, priced (auth)             |
+| POST   | `/api/watchlist/toggle` | Watch/unwatch an article (auth)      |
+| GET    | `/api/activity`    | Recent market events (claims, sells, joins) |
 
-The dashboard UI is a stock-market-style layout: a trending ticker strip,
-a hero panel with a live price chart (7D/30D/90D) for whatever article you
-select — from the ticker, search results, or your holdings — plus market,
-portfolio, and leaderboard columns below.
+The UI is **WikiMarket** — a light-themed, Robinhood-style trading dashboard:
+left nav sidebar, header with global search and a category-index ticker
+(each index is a basket of real articles priced from live pageviews),
+a portfolio overview with an earnings chart and metric cards, a holdings
+table with sparklines and real Wikipedia thumbnails, watchlist, market
+movers, a live activity feed, and per-article detail pages with charts.
 
 ## Notes & limitations
 

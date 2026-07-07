@@ -54,17 +54,26 @@ const rowToHolding = (r) =>
       }
     : null;
 
-const rowToCache = (r) =>
-  r
-    ? {
-        key: r.key,
-        project: r.project,
-        article: r.article,
-        avgViews: r.avg_views,
-        windowDays: r.window_days,
-        updatedAt: r.updated_at,
-      }
-    : null;
+const rowToCache = (r) => {
+  if (!r) return null;
+  let spark = null;
+  try {
+    spark = r.spark ? JSON.parse(r.spark) : null;
+  } catch {
+    /* ignore malformed spark */
+  }
+  return {
+    key: r.key,
+    project: r.project,
+    article: r.article,
+    avgViews: r.avg_views,
+    latestViews: r.latest_views,
+    changePct: r.change_pct,
+    spark,
+    windowDays: r.window_days,
+    updatedAt: r.updated_at,
+  };
+};
 
 export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
   const connectionString = process.env.DATABASE_URL;
@@ -126,6 +135,34 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
           updated_at BIGINT NOT NULL
         );
       `);
+      // Columns added after the initial schema shipped; existing deploys pick
+      // them up on boot. latest_views/change_pct were previously computed but
+      // silently dropped by this store.
+      await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS latest_views BIGINT;`);
+      await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS change_pct DOUBLE PRECISION;`);
+      await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS spark TEXT;`);
+      await q(`
+        CREATE TABLE IF NOT EXISTS watchlist (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          project TEXT NOT NULL,
+          article TEXT NOT NULL,
+          display_title TEXT NOT NULL,
+          added_at BIGINT NOT NULL,
+          PRIMARY KEY (user_id, project, article)
+        );
+      `);
+      await q(`
+        CREATE TABLE IF NOT EXISTS activity (
+          id TEXT PRIMARY KEY,
+          ts BIGINT NOT NULL,
+          type TEXT NOT NULL,
+          username TEXT NOT NULL,
+          article TEXT,
+          display_title TEXT,
+          amount BIGINT
+        );
+      `);
+      await q(`CREATE INDEX IF NOT EXISTS activity_ts_idx ON activity (ts DESC);`);
     },
 
     // --- users ---
@@ -239,15 +276,84 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     },
     async setPageCache(entry) {
       await q(
-        `INSERT INTO page_cache (key, project, article, avg_views, window_days, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6)
+        `INSERT INTO page_cache
+           (key, project, article, avg_views, latest_views, change_pct, spark, window_days, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (key) DO UPDATE SET
            avg_views = EXCLUDED.avg_views,
+           latest_views = EXCLUDED.latest_views,
+           change_pct = EXCLUDED.change_pct,
+           spark = EXCLUDED.spark,
            window_days = EXCLUDED.window_days,
            updated_at = EXCLUDED.updated_at`,
-        [entry.key, entry.project, entry.article, entry.avgViews, entry.windowDays, entry.updatedAt]
+        [
+          entry.key, entry.project, entry.article, entry.avgViews,
+          entry.latestViews ?? null, entry.changePct ?? null,
+          entry.spark ? JSON.stringify(entry.spark) : null,
+          entry.windowDays, entry.updatedAt,
+        ]
       );
       return entry;
+    },
+
+    // --- watchlist ---
+    async watchlistForUser(userId) {
+      const { rows } = await q(
+        `SELECT * FROM watchlist WHERE user_id = $1 ORDER BY added_at DESC`,
+        [userId]
+      );
+      return rows.map((r) => ({
+        userId: r.user_id,
+        project: r.project,
+        article: r.article,
+        displayTitle: r.display_title,
+        addedAt: r.added_at,
+      }));
+    },
+    async isWatched(userId, project, article) {
+      const { rows } = await q(
+        `SELECT 1 FROM watchlist WHERE user_id = $1 AND project = $2 AND article = $3`,
+        [userId, project, article]
+      );
+      return rows.length > 0;
+    },
+    async addWatch(entry) {
+      await q(
+        `INSERT INTO watchlist (user_id, project, article, display_title, added_at)
+         VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+        [entry.userId, entry.project, entry.article, entry.displayTitle, entry.addedAt]
+      );
+    },
+    async removeWatch(userId, project, article) {
+      await q(
+        `DELETE FROM watchlist WHERE user_id = $1 AND project = $2 AND article = $3`,
+        [userId, project, article]
+      );
+    },
+
+    // --- activity feed ---
+    async logActivity(event) {
+      await q(
+        `INSERT INTO activity (id, ts, type, username, article, display_title, amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [event.id, event.ts, event.type, event.username, event.article ?? null,
+         event.displayTitle ?? null, event.amount ?? null]
+      );
+    },
+    async recentActivity(limit) {
+      const { rows } = await q(
+        `SELECT * FROM activity ORDER BY ts DESC LIMIT $1`,
+        [limit]
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        ts: r.ts,
+        type: r.type,
+        username: r.username,
+        article: r.article,
+        displayTitle: r.display_title,
+        amount: r.amount,
+      }));
     },
   };
 }

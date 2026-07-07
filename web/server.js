@@ -8,15 +8,20 @@ import {
   startingCredits,
   publicUser,
   portfolio,
+  portfolioHistory,
   buyPage,
   sellPage,
   leaderboard,
+  recentActivity,
+  logEvent,
 } from "./game.js";
 import {
   searchArticles,
   getPagePrice,
+  getPageMeta,
   getTrending,
   getArticleHistory,
+  getCategoryIndexes,
 } from "./wikimedia.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,6 +75,16 @@ const wrap = (fn) => (req, res) =>
     res.status(400).json({ error: err.message || "Something went wrong." });
   });
 
+// Decorate a list of items (each with .article) with thumbnail + description.
+async function attachMeta(items) {
+  const meta = await getPageMeta(items.map((i) => i.article));
+  return items.map((i) => ({
+    ...i,
+    thumbnail: meta.get(i.article)?.thumbnail ?? null,
+    description: meta.get(i.article)?.description ?? null,
+  }));
+}
+
 // --- auth routes ---
 app.post(
   "/api/register",
@@ -94,6 +109,7 @@ app.post(
     });
     const t = await store.createSession(token(), user.id);
     setSessionCookie(res, t);
+    await logEvent(user.id, "join", {});
     res.json({ user: publicUser(user) });
   })
 );
@@ -130,7 +146,14 @@ app.get(
     if (!req.userId || !(await store.getUser(req.userId))) {
       return res.json({ user: null });
     }
-    res.json(await portfolio(req.userId));
+    const p = await portfolio(req.userId);
+    p.holdings = await attachMeta(p.holdings);
+    // Portfolio rank = position on the net-worth leaderboard.
+    const rows = await leaderboard();
+    const rank = rows.findIndex((r) => r.username === p.user.username) + 1;
+    p.rank = rank || null;
+    p.totalPlayers = rows.length;
+    res.json(p);
   })
 );
 
@@ -146,20 +169,33 @@ app.get(
       results.map(async (r) => {
         try {
           const p = await getPagePrice("en.wikipedia", r.article);
-          return { ...r, price: p.avgViews, changePct: p.changePct };
+          return {
+            ...r,
+            price: p.avgViews,
+            changePct: p.changePct,
+            latestViews: p.latestViews,
+            spark: p.spark || null,
+          };
         } catch {
-          return { ...r, price: null, changePct: null };
+          return { ...r, price: null, changePct: null, latestViews: null, spark: null };
         }
       })
     );
-    res.json({ results: priced });
+    res.json({ results: await attachMeta(priced) });
   })
 );
 
 app.get(
   "/api/trending",
   wrap(async (req, res) => {
-    res.json({ items: await getTrending() });
+    res.json({ items: await attachMeta(await getTrending()) });
+  })
+);
+
+app.get(
+  "/api/categories",
+  wrap(async (req, res) => {
+    res.json({ categories: await getCategoryIndexes() });
   })
 );
 
@@ -171,6 +207,111 @@ app.get(
     const days = Math.min(90, Math.max(7, Number(req.query.days) || 30));
     const history = await getArticleHistory("en.wikipedia", article, days);
     res.json({ history });
+  })
+);
+
+app.get(
+  "/api/portfolio-history",
+  requireAuth,
+  wrap(async (req, res) => {
+    const days = Math.min(90, Math.max(7, Number(req.query.days) || 30));
+    res.json({ history: await portfolioHistory(req.userId, days) });
+  })
+);
+
+// Everything a detail page needs for one article, in one call.
+app.get(
+  "/api/article",
+  requireAuth,
+  wrap(async (req, res) => {
+    const article = String(req.query.article || "");
+    if (!article) throw new Error("Missing article.");
+    const project = "en.wikipedia";
+
+    const price = await getPagePrice(project, article);
+    const [metaMap, holding, watched] = await Promise.all([
+      getPageMeta([article]),
+      store.findHolding(req.userId, project, article),
+      store.isWatched(req.userId, project, article),
+    ]);
+    const meta = metaMap.get(article) || {};
+
+    res.json({
+      article,
+      displayTitle: article.replace(/_/g, " "),
+      url: `https://en.wikipedia.org/wiki/${article}`,
+      thumbnail: meta.thumbnail ?? null,
+      description: meta.description ?? null,
+      price: price.avgViews,
+      changePct: price.changePct,
+      latestViews: price.latestViews,
+      spark: price.spark || null,
+      watched,
+      holding: holding
+        ? {
+            id: holding.id,
+            purchasePrice: holding.purchasePrice,
+            purchasedDate: holding.purchasedDate,
+            totalEarned: holding.totalEarned || 0,
+          }
+        : null,
+    });
+  })
+);
+
+app.get(
+  "/api/watchlist",
+  requireAuth,
+  wrap(async (req, res) => {
+    const rows = await store.watchlistForUser(req.userId);
+    const priced = await Promise.all(
+      rows.map(async (w) => {
+        try {
+          const p = await getPagePrice(w.project, w.article);
+          return {
+            article: w.article,
+            displayTitle: w.displayTitle,
+            price: p.avgViews,
+            changePct: p.changePct,
+            spark: p.spark || null,
+          };
+        } catch {
+          return { article: w.article, displayTitle: w.displayTitle, price: null, changePct: null, spark: null };
+        }
+      })
+    );
+    res.json({ items: await attachMeta(priced) });
+  })
+);
+
+app.post(
+  "/api/watchlist/toggle",
+  requireAuth,
+  wrap(async (req, res) => {
+    const article = String(req.body.article || "");
+    const displayTitle = String(req.body.displayTitle || article.replace(/_/g, " "));
+    if (!article) throw new Error("Missing article.");
+    const project = "en.wikipedia";
+
+    if (await store.isWatched(req.userId, project, article)) {
+      await store.removeWatch(req.userId, project, article);
+      return res.json({ watched: false });
+    }
+    await store.addWatch({
+      userId: req.userId,
+      project,
+      article,
+      displayTitle,
+      addedAt: Date.now(),
+    });
+    res.json({ watched: true });
+  })
+);
+
+app.get(
+  "/api/activity",
+  wrap(async (req, res) => {
+    res.json({ events: await recentActivity(40) });
   })
 );
 

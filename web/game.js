@@ -8,6 +8,7 @@
 import { store, uid } from "./store.js";
 import {
   getPagePrice,
+  getArticleHistory,
   fetchDailyPageviews,
   latestAvailableDate,
   addDaysUTC,
@@ -90,9 +91,13 @@ export async function portfolio(userId) {
 
   const items = [];
   let holdingsValue = 0;
+  let todayEarnings = 0;
+  let totalEarned = 0;
   for (const h of holdings) {
     const price = await getPagePrice(h.project, h.article);
     holdingsValue += price.avgViews;
+    todayEarnings += price.latestViews ?? price.avgViews;
+    totalEarned += h.totalEarned || 0;
     items.push({
       id: h.id,
       article: h.article,
@@ -103,6 +108,8 @@ export async function portfolio(userId) {
       purchasePrice: h.purchasePrice,
       currentPrice: price.avgViews,
       changePct: price.changePct,
+      latestViews: price.latestViews,
+      spark: price.spark || null,
       totalEarned: h.totalEarned || 0,
       purchasedDate: h.purchasedDate,
     });
@@ -113,8 +120,34 @@ export async function portfolio(userId) {
     user: publicUser(user),
     holdings: items,
     holdingsValue,
+    todayEarnings,
+    totalEarned,
     netWorth: user.credits + holdingsValue,
   };
+}
+
+/**
+ * Combined daily earnings across all holdings for the last `days` days —
+ * the dashboard's big chart. Sums each owned page's real daily view series.
+ */
+export async function portfolioHistory(userId, days) {
+  const holdings = await store.holdingsForUser(userId);
+  const totals = new Map(); // date -> views
+  await Promise.all(
+    holdings.map(async (h) => {
+      try {
+        const series = await getArticleHistory(h.project, h.article, days);
+        for (const { date, views } of series) {
+          totals.set(date, (totals.get(date) || 0) + views);
+        }
+      } catch {
+        /* one page failing shouldn't blank the chart */
+      }
+    })
+  );
+  return [...totals.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([date, views]) => ({ date, views }));
 }
 
 export function publicUser(u) {
@@ -155,7 +188,29 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
     totalEarned: 0,
   };
   await store.createHolding(holding);
+  await logEvent(userId, "claim", { article, displayTitle, amount: cost });
   return { holding, cost, creditsLeft };
+}
+
+export async function logEvent(userId, type, { article, displayTitle, amount } = {}) {
+  try {
+    const user = await store.getUser(userId);
+    await store.logActivity({
+      id: uid(),
+      ts: Date.now(),
+      type,
+      username: user ? user.username : "someone",
+      article: article ?? null,
+      displayTitle: displayTitle ?? null,
+      amount: amount ?? null,
+    });
+  } catch (err) {
+    console.error("activity log failed:", err);
+  }
+}
+
+export async function recentActivity(limit = 30) {
+  return store.recentActivity(limit);
 }
 
 /** Sell a page back to the market at its current price. */
@@ -170,6 +225,11 @@ export async function sellPage(userId, holdingId) {
   // Remove first, then credit — so a double-click can't sell the same page twice.
   await store.deleteHolding(holdingId);
   const creditsLeft = await store.addCredits(userId, proceeds);
+  await logEvent(userId, "sell", {
+    article: holding.article,
+    displayTitle: holding.displayTitle,
+    amount: proceeds,
+  });
 
   return { proceeds, creditsLeft };
 }

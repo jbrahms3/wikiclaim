@@ -3,22 +3,28 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WikiClaim — trade Wikipedia articles</title>
+  <title>WikiMarket — Article Portfolio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="app">
-    <!-- Auth view -->
+    <!-- ============ Auth ============ -->
     <section id="auth-view" class="view">
       <div class="auth-card">
         <div class="brand">
           <span class="brand-mark">W</span>
-          <h1>WikiClaim</h1>
+          <div>
+            <h1>WikiMarket</h1>
+            <div class="brand-sub">Article Portfolio</div>
+          </div>
         </div>
         <p class="tagline">
-          Buy Wikipedia articles at the price of their daily traffic.
-          Earn credits every day for every real visitor they get.
-          Start with <strong>250 credits</strong>.
+          The market where encyclopedia articles are the assets. Claim
+          Wikipedia articles at the price of their real daily readership and
+          earn Wiki Points from every visitor. Start with <strong>250 points</strong>.
         </p>
         <div class="tabs">
           <button class="tab active" data-tab="login">Log in</button>
@@ -27,127 +33,254 @@
         <form id="auth-form">
           <input id="username" name="username" placeholder="Username" autocomplete="username" />
           <input id="password" name="password" type="password" placeholder="Password" autocomplete="current-password" />
-          <button type="submit" id="auth-submit" class="primary">Log in</button>
+          <button type="submit" id="auth-submit" class="btn-primary">Log in</button>
           <p id="auth-error" class="error"></p>
         </form>
       </div>
     </section>
 
-    <!-- Game view -->
-    <section id="game-view" class="view" hidden>
-      <div class="rail">
-        <span class="rail-mark">W</span>
-        <button class="rail-btn active" data-scroll="hero" title="Overview">
-          <svg viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6V11h-6v9Zm0-16v5h6V4h-6Z"/></svg>
-        </button>
-        <button class="rail-btn" data-scroll="market" title="Market">
-          <svg viewBox="0 0 24 24"><path d="M5 21V9m7 12V3m7 18v-7"/></svg>
-        </button>
-        <button class="rail-btn" data-scroll="portfolio" title="Your pages">
-          <svg viewBox="0 0 24 24"><path d="M3 7h18v13H3V7Zm0 0 3-4h12l3 4"/></svg>
-        </button>
-        <button class="rail-btn" data-scroll="leaderboard" title="Leaderboard">
-          <svg viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Zm-4 1h4v3a4 4 0 0 1-4-4Zm18 0h-4v3a4 4 0 0 0 4-4Z"/></svg>
-        </button>
-      </div>
+    <!-- ============ App shell ============ -->
+    <section id="game-view" class="view shell" hidden>
+      <!-- Left sidebar -->
+      <aside class="sidebar">
+        <div class="brand side-brand">
+          <span class="brand-mark">W</span>
+          <div>
+            <div class="brand-name">WikiMarket</div>
+            <div class="brand-sub">Article Portfolio</div>
+          </div>
+        </div>
 
+        <nav class="nav">
+          <a class="nav-item" href="#/overview" data-route="overview">
+            <svg viewBox="0 0 24 24"><path d="M3 12 12 4l9 8M5 10v10h5v-6h4v6h5V10"/></svg>
+            Overview
+          </a>
+          <a class="nav-item" href="#/market" data-route="market">
+            <svg viewBox="0 0 24 24"><path d="M4 19V9m5 10V5m5 14v-7m5 7V8"/></svg>
+            Market
+          </a>
+          <a class="nav-item" href="#/watchlist" data-route="watchlist">
+            <svg viewBox="0 0 24 24"><path d="m12 4 2.4 5 5.6.7-4.1 3.8 1.1 5.5-5-2.8-5 2.8 1.1-5.5L4 9.7 9.6 9Z"/></svg>
+            Watchlist
+          </a>
+          <a class="nav-item" href="#/leaderboard" data-route="leaderboard">
+            <svg viewBox="0 0 24 24"><path d="M8 21h8m-4-4v4M7 4h10v5a5 5 0 0 1-10 0V4ZM7 5H4a3 3 0 0 0 3 4m10-4h3a3 3 0 0 1-3 4"/></svg>
+            Leaderboard
+          </a>
+          <a class="nav-item" href="#/activity" data-route="activity">
+            <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+            Activity
+          </a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="side-card">
+            <div class="side-card-label">Wiki Points</div>
+            <div class="side-card-value" id="side-credits">0</div>
+            <div class="side-card-hint">Spendable balance</div>
+          </div>
+          <button id="logout-btn" class="btn-ghost logout">Log out</button>
+        </div>
+      </aside>
+
+      <!-- Main column -->
       <div class="main">
-        <header class="topbar">
-          <div class="brand small">
-            <span class="brand-mark">W</span>
-            <span>WikiClaim</span>
-          </div>
-          <div class="stats">
-            <div class="stat">
-              <span class="stat-label">Credits</span>
-              <span class="stat-value" id="stat-credits">0</span>
+        <header class="header">
+          <form id="search-form" class="search">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+            <input id="search-input" placeholder='Search Wikipedia articles, e.g. "Black hole", "Minecraft", "Chess"' />
+          </form>
+          <div class="header-stats">
+            <div class="hstat">
+              <span class="hstat-label">Portfolio Value</span>
+              <span class="hstat-value" id="hdr-networth">0</span>
             </div>
-            <div class="stat">
-              <span class="stat-label">Net worth</span>
-              <span class="stat-value accent" id="stat-networth">0</span>
+            <div class="hstat">
+              <span class="hstat-label">Earnings (24h)</span>
+              <span class="hstat-value pos" id="hdr-today">0</span>
             </div>
-            <div class="stat">
-              <span class="stat-label">Pages</span>
-              <span class="stat-value" id="stat-pages">0</span>
+            <div class="profile">
+              <span class="avatar" id="hdr-avatar"></span>
+              <span class="profile-name" id="hdr-username"></span>
             </div>
-          </div>
-          <div class="user-box">
-            <span class="avatar" id="stat-avatar"></span>
-            <span id="stat-username"></span>
-            <button id="logout-btn" class="ghost">Log out</button>
           </div>
         </header>
 
-        <div class="ticker-strip" id="ticker">
-          <span class="ticker-loading">Loading trending pages…</span>
+        <div class="ticker" id="ticker">
+          <span class="muted small">Loading category indexes…</span>
         </div>
 
-        <main class="content">
-          <!-- Hero: selected article detail + chart -->
-          <section id="hero" class="hero-panel">
-            <div class="hero-top">
-              <span class="hero-icon" id="hero-icon">?</span>
-              <div class="hero-titles">
-                <div class="hero-name" id="hero-title">Pick an article</div>
-                <div class="hero-sub" id="hero-sub">Search the market or click a trending page to see it here.</div>
-              </div>
-              <div class="hero-price-block">
-                <div class="hero-price" id="hero-price">—</div>
-                <div class="hero-change" id="hero-change"></div>
-              </div>
-              <button class="primary hero-action" id="hero-action" disabled>Select a page</button>
-            </div>
-
-            <div class="hero-body">
-              <div class="chart-card">
-                <div class="chart-head">
-                  <div class="chart-ticker" id="chart-ticker">—</div>
-                  <div class="range-tabs">
-                    <button class="range-tab" data-days="7">7D</button>
-                    <button class="range-tab active" data-days="30">30D</button>
-                    <button class="range-tab" data-days="90">90D</button>
+        <!-- Pages -->
+        <main class="pages">
+          <!-- Overview -->
+          <section class="page" id="page-overview" hidden>
+            <div class="page-grid">
+              <div class="page-center">
+                <h1 class="page-title">Portfolio Overview</h1>
+                <div class="overview-top">
+                  <div class="card chart-card">
+                    <div class="chart-head">
+                      <div>
+                        <div class="chart-value" id="ov-chart-value">0</div>
+                        <div class="chart-caption">views/day across your articles</div>
+                      </div>
+                      <div class="range-tabs" id="ov-ranges">
+                        <button class="range-tab" data-days="7">1W</button>
+                        <button class="range-tab active" data-days="30">1M</button>
+                        <button class="range-tab" data-days="90">3M</button>
+                      </div>
+                    </div>
+                    <div class="chart-holder" id="ov-chart">
+                      <div class="chart-empty">Buy your first article to see your earnings chart.</div>
+                    </div>
                   </div>
+                  <div class="metric-stack" id="metric-stack"></div>
                 </div>
-                <div id="chart-holder" class="chart-holder">
-                  <div class="chart-empty" id="chart-empty">No article selected yet.</div>
+
+                <div class="card table-card">
+                  <div class="card-head">
+                    <h2>Your Articles</h2>
+                  </div>
+                  <table class="table" id="holdings-table">
+                    <thead>
+                      <tr>
+                        <th>Article</th><th>Cost</th><th>Price</th><th>Views (24h)</th>
+                        <th>Earned</th><th>Change</th><th>7D</th><th></th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                  <p class="empty" id="holdings-empty" hidden>
+                    You don't own any articles yet — find one in the <a href="#/market">Market</a>.
+                  </p>
                 </div>
               </div>
 
-              <div class="details-card">
-                <div class="details-title">Details</div>
-                <dl class="details-list" id="details-list"></dl>
+              <div class="page-right">
+                <div class="card side-panel">
+                  <div class="card-head"><h2>Watchlist</h2><a class="link small" href="#/watchlist">View all</a></div>
+                  <ul class="mini-list" id="ov-watchlist"></ul>
+                </div>
+                <div class="card side-panel">
+                  <div class="card-head"><h2>Market Movers</h2></div>
+                  <div class="pill-tabs" id="movers-tabs">
+                    <button class="pill-tab active" data-tab="trending">Trending</button>
+                    <button class="pill-tab" data-tab="gainers">Top Gainers</button>
+                    <button class="pill-tab" data-tab="losers">Top Losers</button>
+                  </div>
+                  <ul class="mini-list" id="ov-movers"></ul>
+                </div>
+                <div class="card side-panel">
+                  <div class="card-head"><h2>Recent Activity</h2><a class="link small" href="#/activity">View all</a></div>
+                  <ul class="feed" id="ov-activity"></ul>
+                </div>
               </div>
             </div>
           </section>
 
-          <div class="grid-columns">
-            <section id="market" class="col">
-              <h2>Market</h2>
-              <p class="col-hint">Search Wikipedia. Price = average daily views over the last 30 days.</p>
-              <form id="search-form" class="search-form">
-                <input id="search-input" placeholder="Search articles, e.g. Black hole" />
-                <button type="submit" class="primary">Search</button>
-              </form>
-              <ul id="search-results" class="list"></ul>
-            </section>
+          <!-- Market -->
+          <section class="page" id="page-market" hidden>
+            <h1 class="page-title">Market</h1>
+            <p class="page-hint">Every article is priced at its average daily readership over the last 30 days. Search anything on Wikipedia.</p>
+            <div class="card table-card">
+              <div class="card-head"><h2 id="market-list-title">Trending Articles</h2></div>
+              <table class="table" id="market-table">
+                <thead>
+                  <tr><th>Article</th><th>Price</th><th>Views (24h)</th><th>Change</th><th>7D</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+              <p class="empty" id="market-empty" hidden>No articles found.</p>
+            </div>
+          </section>
 
-            <section id="portfolio" class="col">
-              <h2>Your pages</h2>
-              <p class="col-hint">Each real calendar day, every page pays you its view count.</p>
-              <ul id="holdings" class="list"></ul>
-              <p id="holdings-empty" class="empty" hidden>You don't own any pages yet. Buy one from the market.</p>
-            </section>
+          <!-- Watchlist -->
+          <section class="page" id="page-watchlist" hidden>
+            <h1 class="page-title">Watchlist</h1>
+            <p class="page-hint">Articles you're keeping an eye on.</p>
+            <div class="card table-card">
+              <table class="table" id="watchlist-table">
+                <thead>
+                  <tr><th>Article</th><th>Price</th><th>Change</th><th>7D</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+              <p class="empty" id="watchlist-empty" hidden>
+                Nothing here yet — open any article and hit <strong>Watch</strong>.
+              </p>
+            </div>
+          </section>
 
-            <section id="leaderboard" class="col">
-              <h2>Leaderboard</h2>
-              <p class="col-hint">Ranked by net worth (credits + page values).</p>
-              <ol id="leaderboard-list" class="leaderboard"></ol>
-            </section>
-          </div>
+          <!-- Leaderboard -->
+          <section class="page" id="page-leaderboard" hidden>
+            <h1 class="page-title">Leaderboard</h1>
+            <p class="page-hint">Ranked by net worth: Wiki Points plus the current value of all owned articles.</p>
+            <div class="card table-card">
+              <table class="table" id="leaderboard-table">
+                <thead>
+                  <tr><th>Rank</th><th>Investor</th><th>Articles</th><th>Points</th><th>Net Worth</th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- Activity -->
+          <section class="page" id="page-activity" hidden>
+            <h1 class="page-title">Market Activity</h1>
+            <p class="page-hint">A live feed of everything happening on WikiMarket.</p>
+            <div class="card">
+              <ul class="feed big" id="activity-feed"></ul>
+              <p class="empty" id="activity-empty" hidden>No activity yet — be the first to claim an article.</p>
+            </div>
+          </section>
+
+          <!-- Article detail -->
+          <section class="page" id="page-article" hidden>
+            <a class="link back" href="#/market">← Back to market</a>
+            <div class="card detail-hero">
+              <div class="detail-top">
+                <span class="thumb xl" id="det-thumb"></span>
+                <div class="detail-titles">
+                  <h1 id="det-title">—</h1>
+                  <div class="page-hint" id="det-desc"></div>
+                </div>
+                <div class="detail-price">
+                  <div class="detail-price-num" id="det-price">—</div>
+                  <div class="badge" id="det-change"></div>
+                </div>
+              </div>
+              <div class="detail-actions">
+                <button class="btn-primary" id="det-action">—</button>
+                <button class="btn-ghost" id="det-watch">Watch</button>
+                <a class="btn-ghost" id="det-wiki" target="_blank" rel="noopener">Read on Wikipedia</a>
+              </div>
+            </div>
+
+            <div class="detail-grid">
+              <div class="card chart-card">
+                <div class="chart-head">
+                  <div class="chart-caption strong" id="det-chart-label">Daily readership</div>
+                  <div class="range-tabs" id="det-ranges">
+                    <button class="range-tab" data-days="7">1W</button>
+                    <button class="range-tab active" data-days="30">1M</button>
+                    <button class="range-tab" data-days="90">3M</button>
+                  </div>
+                </div>
+                <div class="chart-holder" id="det-chart"></div>
+              </div>
+              <div class="card">
+                <div class="card-head"><h2>Statistics</h2></div>
+                <dl class="stats-list" id="det-stats"></dl>
+              </div>
+            </div>
+          </section>
         </main>
       </div>
-      <div id="toast" class="toast" hidden></div>
     </section>
+
+    <div id="toast" class="toast" hidden></div>
   </div>
   <script src="app.js"></script>
 </body>
