@@ -94,9 +94,18 @@ export async function portfolio(userId) {
   let todayEarnings = 0;
   let totalEarned = 0;
   for (const h of holdings) {
-    const price = await getPagePrice(h.project, h.article);
-    holdingsValue += price.avgViews;
-    todayEarnings += price.latestViews ?? price.avgViews;
+    // If pricing is temporarily unavailable, show the last verified price
+    // (what they paid) instead of a bogus 1 - it self-corrects within minutes.
+    let price = null;
+    try {
+      const p = await getPagePrice(h.project, h.article);
+      if (!p.unpriced) price = p;
+    } catch {
+      /* treat as unpriced */
+    }
+    const current = price ? price.avgViews : h.purchasePrice;
+    holdingsValue += current;
+    todayEarnings += price ? price.latestViews ?? price.avgViews : 0;
     totalEarned += h.totalEarned || 0;
     items.push({
       id: h.id,
@@ -106,10 +115,11 @@ export async function portfolio(userId) {
       project: h.project,
       url: `https://${h.lang}.wikipedia.org/wiki/${h.article}`,
       purchasePrice: h.purchasePrice,
-      currentPrice: price.avgViews,
-      changePct: price.changePct,
-      latestViews: price.latestViews,
-      spark: price.spark || null,
+      currentPrice: current,
+      changePct: price ? price.changePct : null,
+      latestViews: price ? price.latestViews : null,
+      spark: price ? price.spark || null : null,
+      unpriced: !price,
       totalEarned: h.totalEarned || 0,
       purchasedDate: h.purchasedDate,
     });
@@ -159,7 +169,14 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
   if (await store.findHolding(userId, project, article)) {
     throw new Error("You already own this page.");
   }
+  // Always re-verify against live data at purchase time; if Wikimedia gives
+  // us nothing back, refuse to transact rather than sell at a bogus price.
   const price = await getPagePrice(project, article, { force: true });
+  if (price.unpriced) {
+    throw new Error(
+      "Couldn't verify this article's traffic right now (Wikimedia's stats API returned no data). Try again in a few seconds."
+    );
+  }
   const cost = price.avgViews;
 
   // Atomic: debit only if the balance can cover it (no read-then-write race).
@@ -220,6 +237,11 @@ export async function sellPage(userId, holdingId) {
     throw new Error("You don't own that page.");
   }
   const price = await getPagePrice(holding.project, holding.article);
+  if (price.unpriced) {
+    throw new Error(
+      "Couldn't price this page right now (no data from Wikimedia). Try again in a few seconds."
+    );
+  }
   const proceeds = price.avgViews;
 
   // Remove first, then credit — so a double-click can't sell the same page twice.
@@ -242,8 +264,12 @@ export async function leaderboard() {
     const holdings = await store.holdingsForUser(u.id);
     let value = 0;
     for (const h of holdings) {
-      const price = await getPagePrice(h.project, h.article);
-      value += price.avgViews;
+      try {
+        const price = await getPagePrice(h.project, h.article);
+        value += price.unpriced ? h.purchasePrice : price.avgViews;
+      } catch {
+        value += h.purchasePrice; // last verified price
+      }
     }
     rows.push({
       username: u.username,

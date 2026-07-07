@@ -75,6 +75,21 @@ const wrap = (fn) => (req, res) =>
     res.status(400).json({ error: err.message || "Something went wrong." });
   });
 
+// Price fields for API responses. When the pageviews window came back empty
+// ("unpriced"), send nulls so the UI shows "no data" instead of a bogus 1.
+function pricePayload(p) {
+  if (p.unpriced) {
+    return { price: null, changePct: null, latestViews: null, spark: null, unpriced: true };
+  }
+  return {
+    price: p.avgViews,
+    changePct: p.changePct,
+    latestViews: p.latestViews,
+    spark: p.spark || null,
+    unpriced: false,
+  };
+}
+
 // Decorate a list of items (each with .article) with thumbnail + description.
 async function attachMeta(items) {
   const meta = await getPageMeta(items.map((i) => i.article));
@@ -169,15 +184,9 @@ app.get(
       results.map(async (r) => {
         try {
           const p = await getPagePrice("en.wikipedia", r.article);
-          return {
-            ...r,
-            price: p.avgViews,
-            changePct: p.changePct,
-            latestViews: p.latestViews,
-            spark: p.spark || null,
-          };
+          return { ...r, ...pricePayload(p) };
         } catch {
-          return { ...r, price: null, changePct: null, latestViews: null, spark: null };
+          return { ...r, price: null, changePct: null, latestViews: null, spark: null, unpriced: true };
         }
       })
     );
@@ -242,10 +251,7 @@ app.get(
       url: `https://en.wikipedia.org/wiki/${article}`,
       thumbnail: meta.thumbnail ?? null,
       description: meta.description ?? null,
-      price: price.avgViews,
-      changePct: price.changePct,
-      latestViews: price.latestViews,
-      spark: price.spark || null,
+      ...pricePayload(price),
       watched,
       holding: holding
         ? {
@@ -259,6 +265,19 @@ app.get(
   })
 );
 
+// Manual price re-check: force a fresh fetch past the cache. Used by the UI
+// when an article shows "no data" (transient Wikimedia API flakiness).
+app.post(
+  "/api/reprice",
+  requireAuth,
+  wrap(async (req, res) => {
+    const article = String(req.body.article || "");
+    if (!article) throw new Error("Missing article.");
+    const p = await getPagePrice("en.wikipedia", article, { force: true });
+    res.json({ article, ...pricePayload(p) });
+  })
+);
+
 app.get(
   "/api/watchlist",
   requireAuth,
@@ -268,15 +287,9 @@ app.get(
       rows.map(async (w) => {
         try {
           const p = await getPagePrice(w.project, w.article);
-          return {
-            article: w.article,
-            displayTitle: w.displayTitle,
-            price: p.avgViews,
-            changePct: p.changePct,
-            spark: p.spark || null,
-          };
+          return { article: w.article, displayTitle: w.displayTitle, ...pricePayload(p) };
         } catch {
-          return { article: w.article, displayTitle: w.displayTitle, price: null, changePct: null, spark: null };
+          return { article: w.article, displayTitle: w.displayTitle, price: null, changePct: null, latestViews: null, spark: null, unpriced: true };
         }
       })
     );

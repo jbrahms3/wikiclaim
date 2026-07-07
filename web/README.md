@@ -109,6 +109,7 @@ No native dependencies beyond `pg`, so it installs cleanly on any platform.
 | GET    | `/api/article?article=` | Detail bundle: price, meta, your position, watched (auth) |
 | GET    | `/api/watchlist`   | Your watchlist, priced (auth)             |
 | POST   | `/api/watchlist/toggle` | Watch/unwatch an article (auth)      |
+| POST   | `/api/reprice`     | Force a fresh price check for one article (auth) |
 | GET    | `/api/activity`    | Recent market events (claims, sells, joins) |
 
 The UI is **WikiMarket** — a light-themed, Robinhood-style trading dashboard:

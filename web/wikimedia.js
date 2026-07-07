@@ -143,14 +143,30 @@ function looksEmpty(entry) {
   return entry.avgViews <= 1 && entry.spark && entry.spark.every((v) => v === 0);
 }
 
+// Coalesce concurrent lookups for the same article into one upstream fetch —
+// e.g. the trending list and the category baskets overlap on several titles
+// and fire at the same time on a cold cache.
+const inflightPrices = new Map(); // key -> Promise<entry>
+
 export async function getPagePrice(project, article, { force = false } = {}) {
   const key = pageKey(project, article);
   const cached = await store.getPageCache(key);
   const ttl = cached && looksEmpty(cached) ? EMPTY_CACHE_MS : PRICE_CACHE_MS;
   if (!force && cached && Date.now() - cached.updatedAt < ttl) {
-    return cached;
+    // unpriced is derived, never persisted: an all-zero window means "the API
+    // gave us nothing", which callers must treat as unknown - not "worth 1".
+    return { ...cached, unpriced: looksEmpty(cached) };
   }
 
+  if (inflightPrices.has(key)) return inflightPrices.get(key);
+  const promise = fetchAndCachePrice(key, project, article).finally(() =>
+    inflightPrices.delete(key)
+  );
+  inflightPrices.set(key, promise);
+  return promise;
+}
+
+async function fetchAndCachePrice(key, project, article) {
   const end = latestAvailableDate();
   const start = addDaysUTC(end, -(PRICE_WINDOW_DAYS - 1));
   const views = await fetchDailyPageviews(project, article, start, end);
@@ -184,7 +200,7 @@ export async function getPagePrice(project, article, { force = false } = {}) {
     updatedAt: Date.now(),
   };
   await store.setPageCache(entry);
-  return entry;
+  return { ...entry, unpriced: looksEmpty(entry) };
 }
 
 /**
@@ -302,7 +318,7 @@ export async function getCategoryIndexes() {
         await Promise.all(
           basket.map((a) => getPagePrice("en.wikipedia", a).catch(() => null))
         )
-      ).filter(Boolean);
+      ).filter((p) => p && !p.unpriced);
       if (!prices.length) return;
 
       const value = Math.round(
@@ -344,6 +360,7 @@ export async function getTrending() {
     TRENDING_ARTICLES.map(async (article) => {
       try {
         const p = await getPagePrice("en.wikipedia", article);
+        if (p.unpriced) return null; // hidden until data comes back (self-heals in minutes)
         return {
           article,
           title: article.replace(/_/g, " "),

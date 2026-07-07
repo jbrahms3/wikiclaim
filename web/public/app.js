@@ -554,12 +554,26 @@ async function renderMarket() {
       <td>${sparkSvg(r.spark, r.changePct)}</td>
       <td><button class="btn-primary btn-sm"></button></td>`;
     const btn = tr.querySelector("button");
-    btn.textContent = isOwned ? "Owned" : affordable ? "Claim" : "Too pricey";
-    btn.disabled = isOwned || !affordable || r.price == null;
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      buy({ article: r.article, title }, btn);
-    });
+    if (isOwned) {
+      btn.textContent = "Owned";
+      btn.disabled = true;
+    } else if (r.price == null) {
+      // Pricing data didn't come back (transient Wikimedia flakiness) —
+      // offer a manual re-check instead of a misleading disabled state.
+      btn.textContent = "No data — retry";
+      btn.disabled = false;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        reprice(r.article, title, btn);
+      });
+    } else {
+      btn.textContent = affordable ? "Claim" : "Too pricey";
+      btn.disabled = !affordable;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        buy({ article: r.article, title }, btn);
+      });
+    }
     tr.addEventListener("click", () => openArticle(r.article));
     tbody.appendChild(tr);
   }
@@ -665,16 +679,21 @@ async function renderArticlePage(article) {
 
   $("#det-title").textContent = d.displayTitle;
   $("#det-desc").textContent = d.description || "Wikipedia article";
-  $("#det-price").textContent = fmt(d.price);
+  $("#det-price").textContent = d.price == null ? "—" : fmt(d.price);
   if (d.thumbnail) {
     $("#det-thumb").outerHTML = `<img class="thumb xl" id="det-thumb" src="${escapeHtml(d.thumbnail)}" alt=""
       referrerpolicy="no-referrer"
       onerror="this.style.visibility='hidden'" />`;
   }
-  const up = (d.changePct || 0) >= 0;
   const changeEl = $("#det-change");
-  changeEl.className = `badge ${up ? "up" : "down"}`;
-  changeEl.textContent = `${up ? "▲" : "▼"} ${Math.abs(d.changePct || 0)}% vs 30d avg`;
+  if (d.changePct == null) {
+    changeEl.className = "badge";
+    changeEl.textContent = "";
+  } else {
+    const up = d.changePct >= 0;
+    changeEl.className = `badge ${up ? "up" : "down"}`;
+    changeEl.textContent = `${up ? "▲" : "▼"} ${Math.abs(d.changePct)}% vs 30d avg`;
+  }
 
   $("#det-wiki").href = d.url;
   renderDetailActions();
@@ -688,7 +707,12 @@ function renderDetailActions() {
   const actionBtn = $("#det-action");
   const watchBtn = $("#det-watch");
 
-  if (d.holding) {
+  if (d.price == null) {
+    // No pricing data right now — can't buy or sell without it.
+    actionBtn.textContent = "Re-check price";
+    actionBtn.disabled = false;
+    actionBtn.onclick = () => reprice(d.article, d.displayTitle, actionBtn);
+  } else if (d.holding) {
     actionBtn.textContent = `Sell for ${fmt(d.price)} pts`;
     actionBtn.disabled = false;
     actionBtn.onclick = () => sell(d.holding.id, d.displayTitle);
@@ -710,16 +734,18 @@ function renderDetailActions() {
 function renderDetailStats() {
   const d = state.detail;
   const rows = [
-    ["Market price", `${fmt(d.price)} pts`],
+    ["Market price", d.price == null ? "—" : `${fmt(d.price)} pts`],
     ["Views (last day)", d.latestViews == null ? "—" : fmt(d.latestViews)],
-    ["vs 30-day avg", `${(d.changePct ?? 0) >= 0 ? "+" : ""}${d.changePct ?? 0}%`],
+    ["vs 30-day avg", d.changePct == null ? "—" : `${d.changePct >= 0 ? "+" : ""}${d.changePct}%`],
     ["Status", d.holding ? "In your portfolio" : "Unowned"],
   ];
   if (d.holding) {
     rows.push(["Claimed", formatShortDate(d.holding.purchasedDate)]);
     rows.push(["Claim cost", `${fmt(d.holding.purchasePrice)} pts`]);
-    const diff = d.price - d.holding.purchasePrice;
-    rows.push(["Since claim", `${diff >= 0 ? "+" : ""}${fmt(diff)} pts`]);
+    if (d.price != null) {
+      const diff = d.price - d.holding.purchasePrice;
+      rows.push(["Since claim", `${diff >= 0 ? "+" : ""}${fmt(diff)} pts`]);
+    }
     rows.push(["Lifetime earned", `+${fmt(d.holding.totalEarned)} pts`]);
   }
   $("#det-stats").innerHTML = rows
@@ -803,6 +829,40 @@ async function sell(holdingId, title) {
     }
   } catch (err) {
     toast(err.message, true);
+  }
+}
+
+async function reprice(article, title, btn) {
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Checking…";
+  }
+  try {
+    const res = await api("/api/reprice", {
+      method: "POST",
+      body: JSON.stringify({ article }),
+    });
+    if (res.price == null) {
+      toast("Still no data from Wikimedia for this article — try again shortly.", true);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "No data — retry";
+      }
+      return;
+    }
+    toast(`"${title}" priced at ${fmt(res.price)} pts.`);
+    // Re-render whatever view we're on so the fresh price shows everywhere.
+    if (state.route.page === "article" && state.detail?.article === article) {
+      renderArticlePage(article);
+    } else {
+      renderRoute();
+    }
+  } catch (err) {
+    toast(err.message, true);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "No data — retry";
+    }
   }
 }
 
