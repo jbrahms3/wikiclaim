@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Runtime data / local game state
+web/data/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db

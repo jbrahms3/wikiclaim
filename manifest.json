@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "WikiClaim",
+  "version": "1.0.0",
+  "description": "Claim Wikipedia articles and earn points every day based on how many people visit them.",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": [
+    "https://*.wikipedia.org/*",
+    "https://wikimedia.org/api/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "WikiClaim",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.wikipedia.org/wiki/*"],
+      "js": ["lib/wiki.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

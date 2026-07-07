@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>WikiClaim</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <img src="icons/icon32.png" alt="" />
+      <span>WikiClaim</span>
+    </div>
+    <button id="refresh-btn" title="Sync pageviews now">&#8635;</button>
+  </header>
+
+  <section class="score-panel">
+    <div class="score-label">Total points</div>
+    <div id="total-score" class="score-value">0</div>
+    <div id="score-sub" class="score-sub">from 0 claimed articles</div>
+  </section>
+
+  <section id="empty-state" class="empty-state" hidden>
+    <p>You haven't claimed any articles yet.</p>
+    <p class="hint">Open a Wikipedia article and click "Claim this page" to start earning points from its daily visitors.</p>
+  </section>
+
+  <ul id="claims-list" class="claims-list"></ul>
+
+  <footer>
+    <span id="status-text"></span>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

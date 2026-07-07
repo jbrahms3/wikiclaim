@@ -1,0 +1,83 @@
+#wikiclaim-widget {
+  all: initial;
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #1f2430;
+  color: #f4f0e6;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#wikiclaim-widget.wikiclaim-claimed {
+  background: linear-gradient(135deg, #2c2410, #1f2430);
+  border-color: #d69e1e;
+}
+
+#wikiclaim-widget .wikiclaim-badge {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #ffd65c, #d69e1e);
+  color: #3b2c05;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+#wikiclaim-widget .wikiclaim-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 90px;
+}
+
+#wikiclaim-widget .wikiclaim-title {
+  font-weight: 600;
+  color: #f4f0e6;
+}
+
+#wikiclaim-widget .wikiclaim-points {
+  color: #ffd65c;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+#wikiclaim-widget .wikiclaim-btn {
+  all: unset;
+  cursor: pointer;
+  background: #d69e1e;
+  color: #1f2430;
+  font-weight: 700;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+
+#wikiclaim-widget.wikiclaim-claimed .wikiclaim-btn {
+  background: transparent;
+  color: #f4f0e6;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+#wikiclaim-widget .wikiclaim-btn:hover {
+  opacity: 0.85;
+}
+
+#wikiclaim-widget .wikiclaim-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
