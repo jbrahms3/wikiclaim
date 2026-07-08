@@ -60,21 +60,30 @@ See `.env.example`.
 
 ## Deploy to Railway
 
+This is a monorepo — the game lives in `web/`, and a Manifest V3 browser
+extension lives at the repo root. Railway builds from the repo root by
+default, so the root [`package.json`](../package.json) is what it detects; its
+`postinstall`/`start` scripts `cd` into `web/` to install and run the actual
+server. **No Root Directory setting is needed.**
+
 1. **Create the project** — in Railway, *New Project → Deploy from GitHub repo*
-   and pick this repo.
-2. **Point the service at `web/`** — in the service's *Settings → Root
-   Directory*, set `web`. Railway then uses `web/package.json` and
-   `web/railway.json`.
-3. **Add Postgres** — *New → Database → Add PostgreSQL*.
-4. **Wire the connection** — in the app service's *Variables*, add:
+   and pick this repo. Leave Root Directory unset (repo root).
+2. **Add Postgres** — *New → Database → Add PostgreSQL*.
+3. **Wire the connection** — in the app service's *Variables*, add:
    ```
    DATABASE_URL = ${{Postgres.DATABASE_URL}}
    ```
    Railway resolves that to the Postgres plugin's connection string (private
    network, so no SSL needed — the app detects this automatically).
-5. **Deploy** — Railway builds with Nixpacks, runs `npm start`, and health-checks
-   `/api/leaderboard`. On first boot the app creates its tables. Open the
-   generated URL and play.
+4. **Deploy** — Railway auto-detects Node from the root `package.json`, runs
+   `npm install` (which also installs `web/`'s dependencies via
+   `postinstall`), then `npm start` (`node web/server.js`), and health-checks
+   `/api/leaderboard` per [`railway.json`](../railway.json). On first boot the
+   app creates its Postgres tables. Open the generated URL and play.
+
+Verified locally by running the exact sequence Railway runs (`npm install`
+then `npm start` from the repo root, not from `web/`) and confirming the
+server boots, serves the SPA and API, and the healthcheck path returns 200.
 
 ## How it's built
 
