@@ -343,28 +343,66 @@ export async function getCategoryIndexes() {
   return out;
 }
 
-// A small curated set of high-traffic articles to show as a "market ticker",
-// the way a finance dashboard shows a strip of well-known stock symbols.
-export const TRENDING_ARTICLES = [
-  "Cat",
-  "Dog",
-  "Artificial_intelligence",
-  "ChatGPT",
-  "Bitcoin",
-  "Elon_Musk",
-  "Taylor_Swift",
-  "Elizabeth_II",
-];
+// Real "trending" = Wikimedia's actual top-viewed-articles list for a day,
+// not a fixed guess at what's popular. One request gets the top 1000 ranked
+// by genuine traffic, so this reflects real-world events instead of always
+// showing the same handful of titles.
+const TOP_LIST_BASE = "https://wikimedia.org/api/rest_v1/metrics/pageviews/top";
+const TOP_LIST_CACHE_MS = 3 * 60 * 60 * 1000; // the ranked list itself barely shifts within a day
 
-export async function getTrending() {
-  const items = await Promise.all(
-    TRENDING_ARTICLES.map(async (article) => {
+// Wikimedia namespace prefixes and meta pages aren't tradable articles.
+const NON_ARTICLE = /^(Special|Wikipedia|File|Category|Template|Portal|Help|Talk|User|Draft|Module|MediaWiki|TimedText|Book)(_talk)?:/i;
+
+let topListCache = null; // { at, items }
+
+async function fetchTopArticles() {
+  if (topListCache && Date.now() - topListCache.at < TOP_LIST_CACHE_MS) {
+    return topListCache.items;
+  }
+  // The ranked top-1000 list has more publishing lag than per-article
+  // pageviews (it needs every article's data aggregated and sorted first) -
+  // "yesterday" 404s more often than not, so step back further if needed.
+  let day = latestAvailableDate();
+  let lastStatus;
+  for (let back = 0; back < 4; back++) {
+    const url = `${TOP_LIST_BASE}/en.wikipedia/all-access/${day.getUTCFullYear()}/${pad2(
+      day.getUTCMonth() + 1
+    )}/${pad2(day.getUTCDate())}`;
+    const res = await fetch(url, { headers: { Accept: "application/json", "User-Agent": UA } });
+    if (res.ok) {
+      const data = await res.json();
+      const items = (data.items?.[0]?.articles || []).filter(
+        (a) => a.article !== "Main_Page" && !NON_ARTICLE.test(a.article)
+      );
+      topListCache = { at: Date.now(), items };
+      return items;
+    }
+    lastStatus = res.status;
+    day = addDaysUTC(day, -1);
+  }
+  throw new Error(`Top articles API ${lastStatus}`);
+}
+
+export async function getTrending(limit = 10) {
+  let top;
+  try {
+    top = await fetchTopArticles();
+  } catch {
+    return []; // upstream hiccup - ticker just stays empty until next refresh
+  }
+
+  // Grab extra candidates in case a few come back unpriced, so we still
+  // reliably fill `limit` slots without waiting on every single one.
+  const candidates = top.slice(0, Math.max(limit * 2, 20));
+  const priced = await Promise.all(
+    candidates.map(async ({ article, rank }) => {
       try {
         const p = await getPagePrice("en.wikipedia", article);
-        if (p.unpriced) return null; // hidden until data comes back (self-heals in minutes)
+        if (p.unpriced) return null;
         return {
           article,
           title: article.replace(/_/g, " "),
+          rank,
           price: p.avgViews,
           changePct: p.changePct,
           latestViews: p.latestViews,
@@ -375,7 +413,11 @@ export async function getTrending() {
       }
     })
   );
-  return items.filter(Boolean);
+  // Promise.all can resolve out of order; keep real-world popularity rank.
+  return priced
+    .filter(Boolean)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, limit);
 }
 
 /**
