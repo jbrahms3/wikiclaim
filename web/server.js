@@ -61,10 +61,17 @@ async function resolveUserFromToken(bearerToken) {
   let clerkUserId;
   try {
     const { data, errors } = await verifyToken(bearerToken, { secretKey: CLERK_SECRET_KEY });
-    if (errors || !data?.sub) return null;
+    // verifyToken reports invalid/expired/mismatched tokens as a normal
+    // {errors} return value, not a thrown exception - log it, or a bad
+    // token just silently looks identical to "not signed in" with no trace.
+    if (errors) {
+      console.error("Clerk token rejected:", errors[0]?.message || errors);
+      return null;
+    }
+    if (!data?.sub) return null;
     clerkUserId = data.sub;
   } catch (err) {
-    console.error("Clerk token verification failed:", err);
+    console.error("Clerk token verification threw:", err);
     return null;
   }
 
