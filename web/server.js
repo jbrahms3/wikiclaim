@@ -14,6 +14,8 @@ import {
   leaderboard,
   recentActivity,
   logEvent,
+  placeBet,
+  listBets,
 } from "./game.js";
 import {
   searchArticles,
@@ -88,6 +90,12 @@ function pricePayload(p) {
     spark: p.spark || null,
     unpriced: false,
   };
+}
+
+// Open + resolved bets, each decorated with a thumbnail for display.
+async function bundledBets(userId) {
+  const { open, resolved } = await listBets(userId);
+  return { open: await attachMeta(open), resolved: await attachMeta(resolved) };
 }
 
 // Decorate a list of items (each with .article) with thumbnail + description.
@@ -351,6 +359,34 @@ app.post(
   wrap(async (req, res) => {
     const result = await sellPage(req.userId, String(req.body.holdingId || ""));
     res.json({ ...result, portfolio: await portfolio(req.userId) });
+  })
+);
+
+app.post(
+  "/api/bet",
+  requireAuth,
+  wrap(async (req, res) => {
+    const article = String(req.body.article || "");
+    const displayTitle = String(req.body.displayTitle || article.replace(/_/g, " "));
+    const direction = String(req.body.direction || "");
+    const stake = req.body.stake;
+    if (!article) throw new Error("Missing article.");
+    const result = await placeBet(req.userId, {
+      project: "en.wikipedia",
+      article,
+      displayTitle,
+      direction,
+      stake,
+    });
+    res.json({ ...result, bets: await bundledBets(req.userId), portfolio: await portfolio(req.userId) });
+  })
+);
+
+app.get(
+  "/api/bets",
+  requireAuth,
+  wrap(async (req, res) => {
+    res.json(await bundledBets(req.userId));
   })
 );
 

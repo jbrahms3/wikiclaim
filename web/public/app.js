@@ -10,6 +10,8 @@ const state = {
   watchlist: [],
   activity: [],
   leaderboard: [],
+  bets: { open: [], resolved: [] },
+  predictDirection: null,
   detail: null,
   route: { page: "overview" },
   ovDays: 30,
@@ -83,6 +85,14 @@ function formatShortDate(yyyymmdd) {
   const d = Number(yyyymmdd.slice(6, 8));
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${months[m]} ${d}`;
+}
+
+function formatCountdown(resolvesAt) {
+  const ms = resolvesAt - Date.now();
+  if (ms <= 0) return "Resolving…";
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return `${h}h ${m}m left`;
 }
 
 function relTime(ts) {
@@ -227,6 +237,11 @@ function loadSecondary() {
     state.leaderboard = rows;
     if (state.route.page === "leaderboard") renderRoute();
   }).catch(() => {});
+  api("/api/bets").then(({ open, resolved }) => {
+    state.bets = { open, resolved };
+    if (state.route.page === "predictions") renderPredictionsPage();
+    if (state.route.page === "article") renderDetOpenBets();
+  }).catch(() => {});
 }
 
 async function refreshAfterTrade() {
@@ -274,7 +289,7 @@ function renderTicker() {
 
 /* ================= router ================= */
 
-const PAGES = ["overview", "market", "watchlist", "leaderboard", "activity", "article"];
+const PAGES = ["overview", "market", "watchlist", "predictions", "leaderboard", "activity", "article"];
 
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, "");
@@ -305,6 +320,7 @@ function renderRoute() {
   if (page === "overview") renderOverview();
   else if (page === "market") renderMarket();
   else if (page === "watchlist") renderWatchlistPage();
+  else if (page === "predictions") renderPredictionsPage();
   else if (page === "leaderboard") renderLeaderboardPage();
   else if (page === "activity") renderActivityPage();
   else if (page === "article") renderArticlePage(state.route.article);
@@ -483,6 +499,11 @@ function feedItemHtml(ev) {
   } else if (ev.type === "join") {
     dot = "join";
     text = `${user} joined WikiMarket`;
+  } else if (ev.type === "bet") {
+    text = `${user} predicted <b>${title}</b> for ${fmt(ev.amount)} pts`;
+  } else if (ev.type === "bet-resolved") {
+    dot = ev.amount > 0 ? "" : "sell";
+    text = `${user}'s prediction on <b>${title}</b> paid out ${fmt(ev.amount)} pts`;
   } else {
     text = `${user} did something`;
   }
@@ -619,6 +640,62 @@ function renderWatchlistPage() {
   }
 }
 
+/* ================= predictions page ================= */
+
+function renderPredictionsPage() {
+  const open = state.bets.open;
+  const resolved = state.bets.resolved;
+
+  const openTbody = $("#bets-open-table tbody");
+  $("#bets-open-empty").hidden = open.length > 0;
+  $("#bets-open-table").hidden = open.length === 0;
+  openTbody.innerHTML = "";
+  for (const b of open) {
+    const pctChange = (b.currentPrice - b.startPrice) / b.startPrice;
+    const signedPct = b.direction === "up" ? pctChange : -pctChange;
+    const estPayout = Math.max(0, Math.round(b.stake * (1 + signedPct)));
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>
+        <div class="cell-article">
+          ${thumbHtml(b)}
+          <div class="cell-title">${escapeHtml(b.displayTitle)}</div>
+        </div>
+      </td>
+      <td>${b.direction === "up" ? "▲ Up" : "▼ Down"}</td>
+      <td class="num">${fmt(b.stake)}</td>
+      <td class="num">${fmt(b.startPrice)} → ${fmt(b.currentPrice)}</td>
+      <td class="bet-countdown">${formatCountdown(b.resolvesAt)}</td>
+      <td class="num ${estPayout >= b.stake ? "pos" : "neg"}">${fmt(estPayout)}</td>`;
+    tr.addEventListener("click", () => openArticle(b.article));
+    openTbody.appendChild(tr);
+  }
+
+  const resolvedTbody = $("#bets-resolved-table tbody");
+  $("#bets-resolved-empty").hidden = resolved.length > 0;
+  $("#bets-resolved-table").hidden = resolved.length === 0;
+  resolvedTbody.innerHTML = "";
+  for (const b of resolved) {
+    const outcome = b.payout > b.stake ? "up" : b.payout < b.stake ? "down" : "even";
+    const outcomeText = outcome === "up" ? "Won" : outcome === "down" ? "Lost" : "Even";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>
+        <div class="cell-article">
+          ${thumbHtml(b)}
+          <div class="cell-title">${escapeHtml(b.displayTitle)}</div>
+        </div>
+      </td>
+      <td>${b.direction === "up" ? "▲ Up" : "▼ Down"}</td>
+      <td class="num">${fmt(b.stake)}</td>
+      <td class="num">${fmt(b.startPrice)} → ${fmt(b.endPrice)}</td>
+      <td class="num ${outcome === "even" ? "" : outcome === "up" ? "pos" : "neg"}">${fmt(b.payout)}</td>
+      <td class="bet-outcome ${outcome}">${outcomeText}</td>`;
+    tr.addEventListener("click", () => openArticle(b.article));
+    resolvedTbody.appendChild(tr);
+  }
+}
+
 /* ================= leaderboard page ================= */
 
 function renderLeaderboardPage() {
@@ -706,6 +783,30 @@ async function renderArticlePage(article) {
   renderDetailActions();
   renderDetailStats();
   loadDetailChart();
+  resetPredictForm();
+  renderDetOpenBets();
+}
+
+function renderDetOpenBets() {
+  const ul = $("#det-open-bets");
+  const d = state.detail;
+  if (!ul || !d) return;
+  const mine = state.bets.open.filter((b) => b.article === d.article);
+  ul.innerHTML = "";
+  for (const b of mine) {
+    const winning = (b.direction === "up") === (b.currentPrice >= b.startPrice);
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <div class="mini-main">
+        <div class="mini-title">${b.direction === "up" ? "▲ Up" : "▼ Down"} · staked ${fmt(b.stake)} pts</div>
+        <div class="mini-sub">${formatCountdown(b.resolvesAt)} · currently ${winning ? "winning" : "losing"}</div>
+      </div>
+      <div class="mini-right">
+        <div class="mini-price ${winning ? "pos" : "neg"}">${fmt(b.currentPrice)}</div>
+        <div class="mini-change">from ${fmt(b.startPrice)}</div>
+      </div>`;
+    ul.appendChild(li);
+  }
 }
 
 function renderDetailActions() {
@@ -872,6 +973,67 @@ async function reprice(article, title, btn) {
     }
   }
 }
+
+function updatePredictSubmitState() {
+  const stakeEl = $("#predict-stake");
+  if (!stakeEl) return;
+  const stake = Number(stakeEl.value);
+  const valid = !!state.predictDirection && Number.isFinite(stake) && stake >= 1;
+  $("#predict-submit").disabled = !valid;
+}
+
+function resetPredictForm() {
+  state.predictDirection = null;
+  const stakeEl = $("#predict-stake");
+  if (stakeEl) stakeEl.value = "";
+  $("#predict-error").textContent = "";
+  document.querySelectorAll(".dir-btn").forEach((b) => b.classList.remove("active"));
+  updatePredictSubmitState();
+}
+
+$("#predict-up").addEventListener("click", () => {
+  state.predictDirection = "up";
+  $("#predict-up").classList.add("active");
+  $("#predict-down").classList.remove("active");
+  updatePredictSubmitState();
+});
+$("#predict-down").addEventListener("click", () => {
+  state.predictDirection = "down";
+  $("#predict-down").classList.add("active");
+  $("#predict-up").classList.remove("active");
+  updatePredictSubmitState();
+});
+$("#predict-stake").addEventListener("input", updatePredictSubmitState);
+
+$("#predict-submit").addEventListener("click", async () => {
+  const d = state.detail;
+  if (!d) return;
+  const stake = Number($("#predict-stake").value);
+  const direction = state.predictDirection;
+  const btn = $("#predict-submit");
+  const errEl = $("#predict-error");
+  errEl.textContent = "";
+  btn.disabled = true;
+  btn.textContent = "Placing…";
+  try {
+    const res = await api("/api/bet", {
+      method: "POST",
+      body: JSON.stringify({ article: d.article, displayTitle: d.displayTitle, direction, stake }),
+    });
+    state.bets = res.bets;
+    state.me = res.portfolio;
+    state.user = res.portfolio.user;
+    renderChrome();
+    toast(`Predicted "${d.displayTitle}" will go ${direction} — staked ${fmt(stake)} pts.`);
+    resetPredictForm();
+    renderDetOpenBets();
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.textContent = "Place Prediction";
+    updatePredictSubmitState();
+  }
+});
 
 async function toggleWatch(article, displayTitle) {
   try {

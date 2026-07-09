@@ -448,6 +448,32 @@ img.thumb { border: 1px solid var(--border); }
 .stats-row dt { color: var(--muted); margin: 0; }
 .stats-row dd { margin: 0; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 
+/* ---------- Predictions ---------- */
+.stack { display: flex; flex-direction: column; gap: 20px; }
+
+.predict-card { margin-top: 16px; padding-bottom: 6px; }
+.predict-hint { padding: 0 16px; margin: 0 0 14px; }
+.predict-form {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 0 16px 6px;
+}
+.direction-toggle { display: flex; gap: 6px; }
+.dir-btn {
+  border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+  font-family: inherit; font-weight: 700; font-size: 13px;
+  padding: 9px 16px; border-radius: 9px; cursor: pointer;
+}
+.dir-btn.up.active { background: var(--green-soft); color: var(--green); border-color: var(--green); }
+.dir-btn.down.active { background: var(--red-soft); color: var(--red); border-color: var(--red); }
+.predict-form input[type="number"] { width: 130px; }
+.predict-form .btn-primary:disabled { background: #c8ccd1; cursor: default; }
+
+.bet-outcome { font-weight: 700; }
+.bet-outcome.up { color: var(--green); }
+.bet-outcome.down { color: var(--red); }
+.bet-outcome.even { color: var(--muted); }
+.bet-countdown { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+
 /* ---------- Toast ---------- */
 .toast {
   position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);

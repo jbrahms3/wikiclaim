@@ -18,6 +18,7 @@ const EMPTY = {
   pageCache: {},
   watchlist: {}, // "userId::project::article" -> { userId, project, article, displayTitle, addedAt }
   activity: [], // newest last; capped
+  bets: {}, // id -> 24h directional price prediction, see game.js placeBet
 };
 
 // Records are flat objects; return shallow copies from reads so callers can't
@@ -187,6 +188,28 @@ export function createJsonStore() {
     },
     async recentActivity(limit) {
       return db.activity.slice(-limit).reverse().map(copy);
+    },
+
+    // --- bets (24h directional price predictions) ---
+    async createBet(bet) {
+      db.bets[bet.id] = { ...bet };
+      persist();
+      return bet;
+    },
+    async betsForUser(userId, status) {
+      return Object.values(db.bets)
+        .filter((b) => b.userId === userId && (!status || b.status === status))
+        .sort((a, b) => b.placedAt - a.placedAt)
+        .map(copy);
+    },
+    // Compare-and-set: only resolves an still-open bet, so a concurrent
+    // settle pass can't double-pay it. Returns true if applied.
+    async resolveBet(id, updates) {
+      const b = db.bets[id];
+      if (!b || b.status !== "open") return false;
+      Object.assign(b, updates, { status: "resolved" });
+      persist();
+      return true;
     },
   };
 }

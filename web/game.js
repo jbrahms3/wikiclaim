@@ -281,3 +281,135 @@ export async function leaderboard() {
   rows.sort((a, b) => b.netWorth - a.netWorth);
   return rows;
 }
+
+/**
+ * Predictions: a 24h directional bet on an article's price (its avgViews,
+ * the same number shown everywhere as "price") rather than owning the page
+ * itself. Stake is escrowed (debited) immediately; payout is settled lazily,
+ * the same pattern as holdings - no cron, resolved whenever the bettor is
+ * next active, past-due bets are just caught up on read.
+ */
+const BET_DURATION_MS = 24 * 60 * 60 * 1000;
+const MIN_STAKE = 1;
+
+export async function placeBet(userId, { project, article, displayTitle, direction, stake }) {
+  stake = Math.round(Number(stake));
+  if (!Number.isFinite(stake) || stake < MIN_STAKE) {
+    throw new Error(`Minimum prediction stake is ${MIN_STAKE} point.`);
+  }
+  if (direction !== "up" && direction !== "down") {
+    throw new Error("Direction must be 'up' or 'down'.");
+  }
+
+  // Force a live check, same as buying - refuse rather than lock in a bet
+  // against a stale or bogus starting price.
+  const price = await getPagePrice(project, article, { force: true });
+  if (price.unpriced) {
+    throw new Error(
+      "Couldn't verify this article's price right now (Wikimedia's stats API returned no data). Try again in a few seconds."
+    );
+  }
+
+  const creditsLeft = await store.tryDebit(userId, stake);
+  if (creditsLeft === null) {
+    const user = await store.getUser(userId);
+    throw new Error(
+      `Not enough credits: stake is ${stake}, you have ${user ? user.credits : 0}.`
+    );
+  }
+
+  const now = Date.now();
+  const bet = {
+    id: uid(),
+    userId,
+    project,
+    article,
+    displayTitle,
+    direction,
+    stake,
+    startPrice: price.avgViews,
+    placedAt: now,
+    resolvesAt: now + BET_DURATION_MS,
+    status: "open",
+    endPrice: null,
+    payout: null,
+    resolvedAt: null,
+  };
+  await store.createBet(bet);
+  await logEvent(userId, "bet", { article, displayTitle, amount: stake });
+  return { bet, creditsLeft };
+}
+
+/**
+ * Resolve one bet if its window has passed. Payout scales with the real
+ * % price move: guess the direction right and get more than your stake
+ * back, wrong and get less (floored at 0 - you can't lose more than you
+ * staked). A Wikimedia hiccup at resolution time refunds the stake instead
+ * of penalizing the player for an API outage.
+ */
+async function resolveBetIfDue(bet) {
+  if (bet.status !== "open" || Date.now() < bet.resolvesAt) return null;
+
+  let endPrice = bet.startPrice;
+  try {
+    const price = await getPagePrice(bet.project, bet.article, { force: true });
+    if (!price.unpriced) endPrice = price.avgViews;
+  } catch {
+    /* endPrice stays at startPrice -> break-even refund */
+  }
+
+  const pctChange = (endPrice - bet.startPrice) / bet.startPrice;
+  const signedPct = bet.direction === "up" ? pctChange : -pctChange;
+  const payout = Math.max(0, Math.round(bet.stake * (1 + signedPct)));
+
+  const applied = await store.resolveBet(bet.id, {
+    endPrice,
+    payout,
+    resolvedAt: Date.now(),
+  });
+  if (!applied) return null; // a concurrent settle pass already resolved this one
+
+  if (payout > 0) await store.addCredits(bet.userId, payout);
+  await logEvent(bet.userId, "bet-resolved", {
+    article: bet.article,
+    displayTitle: bet.displayTitle,
+    amount: payout,
+  });
+  return payout;
+}
+
+/** Resolve every past-due open bet for a user. Call before reading bets/credits. */
+export async function settleBets(userId) {
+  const open = await store.betsForUser(userId, "open");
+  for (const b of open) {
+    try {
+      await resolveBetIfDue(b);
+    } catch (err) {
+      console.error("bet resolution failed for", b.id, err);
+    }
+  }
+}
+
+/** Open bets (with a live current price for an in-progress win/loss read) + recent history. */
+export async function listBets(userId) {
+  await settleBets(userId);
+  const [openRaw, resolvedRaw] = await Promise.all([
+    store.betsForUser(userId, "open"),
+    store.betsForUser(userId, "resolved"),
+  ]);
+
+  const open = await Promise.all(
+    openRaw.map(async (b) => {
+      let currentPrice = b.startPrice;
+      try {
+        const p = await getPagePrice(b.project, b.article);
+        if (!p.unpriced) currentPrice = p.avgViews;
+      } catch {
+        /* show start price as a fallback */
+      }
+      return { ...b, currentPrice };
+    })
+  );
+
+  return { open, resolved: resolvedRaw.slice(0, 30) };
+}

@@ -28,6 +28,12 @@ climb the shared net-worth leaderboard.
   paid.
 - **Net worth** = credits + current value of all your pages. The leaderboard
   ranks everyone by net worth.
+- **Predictions**: instead of owning a page, stake credits on whether its
+  price will be higher or lower 24 hours from now. Resolves lazily (same
+  pattern as daily earnings, no cron) against the real price move: guess
+  right and get back more than your stake, guess wrong and get back less
+  (floored at 0). A Wikimedia hiccup at resolution time refunds the stake
+  rather than penalizing you.
 
 ## Run it locally
 
@@ -119,7 +125,9 @@ No native dependencies beyond `pg`, so it installs cleanly on any platform.
 | GET    | `/api/watchlist`   | Your watchlist, priced (auth)             |
 | POST   | `/api/watchlist/toggle` | Watch/unwatch an article (auth)      |
 | POST   | `/api/reprice`     | Force a fresh price check for one article (auth) |
-| GET    | `/api/activity`    | Recent market events (claims, sells, joins) |
+| GET    | `/api/activity`    | Recent market events (claims, sells, joins, predictions) |
+| POST   | `/api/bet`         | Place a 24h up/down price prediction (auth) |
+| GET    | `/api/bets`        | Your open (settles due ones first) + resolved predictions (auth) |
 
 The UI is **WikiMarket** — a light-themed, Robinhood-style trading dashboard:
 left nav sidebar, header with global search and a category-index ticker
@@ -136,6 +144,7 @@ movers, a live activity feed, and per-article detail pages with charts.
   HttpOnly cookie. This is a game demo, not hardened production auth — put it
   behind HTTPS and add rate limiting before exposing it publicly.
 - Reset the game by deleting `data/db.json` (JSON mode) or clearing the
-  Postgres tables (`users`, `holdings`, `sessions`, `page_cache`).
+  Postgres tables (`users`, `holdings`, `sessions`, `page_cache`, `watchlist`,
+  `activity`, `bets`).
 - Pageview prices are cached for 6 hours to be a good API citizen, so a
   page's price won't change more than a few times a day.

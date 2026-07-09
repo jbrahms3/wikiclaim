@@ -54,6 +54,26 @@ const rowToHolding = (r) =>
       }
     : null;
 
+const rowToBet = (r) =>
+  r
+    ? {
+        id: r.id,
+        userId: r.user_id,
+        project: r.project,
+        article: r.article,
+        displayTitle: r.display_title,
+        direction: r.direction,
+        stake: r.stake,
+        startPrice: r.start_price,
+        placedAt: r.placed_at,
+        resolvesAt: r.resolves_at,
+        status: r.status,
+        endPrice: r.end_price,
+        payout: r.payout,
+        resolvedAt: r.resolved_at,
+      }
+    : null;
+
 const rowToCache = (r) => {
   if (!r) return null;
   let spark = null;
@@ -163,6 +183,25 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         );
       `);
       await q(`CREATE INDEX IF NOT EXISTS activity_ts_idx ON activity (ts DESC);`);
+      await q(`
+        CREATE TABLE IF NOT EXISTS bets (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          project TEXT NOT NULL,
+          article TEXT NOT NULL,
+          display_title TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          stake BIGINT NOT NULL,
+          start_price BIGINT NOT NULL,
+          placed_at BIGINT NOT NULL,
+          resolves_at BIGINT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open',
+          end_price BIGINT,
+          payout BIGINT,
+          resolved_at BIGINT
+        );
+      `);
+      await q(`CREATE INDEX IF NOT EXISTS bets_user_idx ON bets (user_id, status);`);
     },
 
     // --- users ---
@@ -354,6 +393,41 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         displayTitle: r.display_title,
         amount: r.amount,
       }));
+    },
+
+    // --- bets (24h directional price predictions) ---
+    async createBet(bet) {
+      await q(
+        `INSERT INTO bets
+           (id, user_id, project, article, display_title, direction, stake,
+            start_price, placed_at, resolves_at, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open')`,
+        [
+          bet.id, bet.userId, bet.project, bet.article, bet.displayTitle,
+          bet.direction, bet.stake, bet.startPrice, bet.placedAt, bet.resolvesAt,
+        ]
+      );
+      return bet;
+    },
+    async betsForUser(userId, status) {
+      const { rows } = status
+        ? await q(
+            `SELECT * FROM bets WHERE user_id = $1 AND status = $2 ORDER BY placed_at DESC`,
+            [userId, status]
+          )
+        : await q(`SELECT * FROM bets WHERE user_id = $1 ORDER BY placed_at DESC`, [userId]);
+      return rows.map(rowToBet);
+    },
+    // Compare-and-set via the WHERE status='open' guard - only one concurrent
+    // resolve can win. Returns true if this call applied the resolution.
+    async resolveBet(id, updates) {
+      const { rowCount } = await q(
+        `UPDATE bets
+           SET status = 'resolved', end_price = $2, payout = $3, resolved_at = $4
+         WHERE id = $1 AND status = 'open'`,
+        [id, updates.endPrice, updates.payout, updates.resolvedAt]
+      );
+      return rowCount > 0;
     },
   };
 }
