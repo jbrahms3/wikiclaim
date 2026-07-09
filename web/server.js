@@ -56,22 +56,33 @@ app.use(express.static(path.join(__dirname, "public")));
 // internal user record - creating one on first sight (just-in-time
 // provisioning), since Clerk owns identity but we still track our own
 // credits/holdings/bets keyed by our own id everywhere else in the app.
-async function resolveUserFromToken(bearerToken) {
-  if (!bearerToken || !CLERK_SECRET_KEY) return null;
-  let clerkUserId;
+// Verify a Clerk bearer token, returning { clerkUserId } or { reason } so
+// both the auth middleware and the /api/debug/auth endpoint can share the
+// exact same logic and error wording.
+async function verifyClerkToken(bearerToken) {
+  if (!bearerToken) return { reason: "no-token" };
+  if (!CLERK_SECRET_KEY) return { reason: "no-secret-key" };
   try {
     const { data, errors } = await verifyToken(bearerToken, { secretKey: CLERK_SECRET_KEY });
     // verifyToken reports invalid/expired/mismatched tokens as a normal
-    // {errors} return value, not a thrown exception - log it, or a bad
-    // token just silently looks identical to "not signed in" with no trace.
-    if (errors) {
-      console.error("Clerk token rejected:", errors[0]?.message || errors);
-      return null;
-    }
-    if (!data?.sub) return null;
-    clerkUserId = data.sub;
+    // {errors} return value, not a thrown exception.
+    if (errors) return { reason: "rejected", detail: errors[0]?.message || String(errors) };
+    if (!data?.sub) return { reason: "no-sub" };
+    return { clerkUserId: data.sub };
   } catch (err) {
-    console.error("Clerk token verification threw:", err);
+    return { reason: "threw", detail: err?.message || String(err) };
+  }
+}
+
+async function resolveUserFromToken(bearerToken) {
+  const { clerkUserId, reason, detail } = await verifyClerkToken(bearerToken);
+  if (!clerkUserId) {
+    // "no-token" is the normal signed-out case (the app polls /api/me on load
+    // before sign-in) - don't spam logs for it. Everything else is a real
+    // misconfiguration worth surfacing.
+    if (reason !== "no-token") {
+      console.error(`Clerk auth failed (${reason})${detail ? ": " + detail : ""}`);
+    }
     return null;
   }
 
@@ -123,6 +134,32 @@ const wrap = (fn) => (req, res) =>
     console.error(err);
     res.status(400).json({ error: err.message || "Something went wrong." });
   });
+
+// Diagnostic endpoint - reports exactly why auth did or didn't succeed,
+// without leaking the token or secret. Visit /api/debug/auth in the browser
+// while signed in to see what's actually happening end-to-end.
+app.get(
+  "/api/debug/auth",
+  wrap(async (req, res) => {
+    const auth = req.headers.authorization || "";
+    const hasBearer = auth.startsWith("Bearer ");
+    const bearerToken = hasBearer ? auth.slice(7) : null;
+    const result = await verifyClerkToken(bearerToken);
+    res.json({
+      // What the browser sent us:
+      authorizationHeaderPresent: !!auth,
+      looksLikeBearer: hasBearer,
+      tokenLength: bearerToken ? bearerToken.length : 0,
+      // What the server is configured with:
+      secretKeyConfigured: !!CLERK_SECRET_KEY,
+      secretKeyPrefix: CLERK_SECRET_KEY ? CLERK_SECRET_KEY.slice(0, 8) : null,
+      // The verification outcome:
+      verified: !!result.clerkUserId,
+      reason: result.reason || "ok",
+      detail: result.detail || null,
+    });
+  })
+);
 
 // Price fields for API responses. When the pageviews window came back empty
 // ("unpriced"), send nulls so the UI shows "no data" instead of a bogus 1.

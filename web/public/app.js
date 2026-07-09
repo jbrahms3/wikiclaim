@@ -27,7 +27,13 @@ const state = {
 // and only re-fetches near expiry - so it's fine to call on every request.
 async function api(path, opts = {}) {
   const headers = { "Content-Type": "application/json" };
-  const token = await window.Clerk?.session?.getToken().catch(() => null);
+  let token = null;
+  try {
+    token = (await window.Clerk?.session?.getToken()) ?? null;
+  } catch (e) {
+    // A failed getToken() would otherwise silently look like "signed out".
+    console.warn("Clerk getToken() failed:", e);
+  }
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(path, { headers, ...opts });
@@ -204,6 +210,24 @@ async function enterGame() {
     showAuthView();
     $("#auth-error").textContent =
       "Signed in with Clerk, but the server couldn't verify it. Try again shortly.";
+    // Auto-diagnose: call the debug endpoint *through* api() (so it carries the
+    // token) and print the exact reason to the console. Open DevTools -> Console
+    // to see it. Also expose api() so you can re-run diagnostics manually.
+    window.api = api;
+    try {
+      const diag = await api("/api/debug/auth");
+      console.log("[WikiMarket auth diagnostic]", diag);
+      const hint = {
+        "no-token": "The browser isn't sending a Clerk token. getToken() likely returned null - check that you're actually signed in (window.Clerk.session should be non-null).",
+        "no-secret-key": "The server has no CLERK_SECRET_KEY set. Add it in Railway -> your service -> Variables, then redeploy.",
+        "rejected": "The token was rejected by Clerk - almost always because CLERK_SECRET_KEY belongs to a DIFFERENT Clerk app than the publishable key in index.html. Make sure both keys are from the same Clerk application.",
+        "threw": "Clerk threw during verification - usually a malformed/incorrect CLERK_SECRET_KEY.",
+        "no-sub": "Token verified but had no user id - unexpected; report this.",
+      }[diag.reason];
+      if (hint) console.warn("[WikiMarket auth diagnostic] Likely cause:", hint);
+    } catch (e) {
+      console.error("[WikiMarket auth diagnostic] failed to reach /api/debug/auth:", e);
+    }
     return;
   }
   loadSecondary();
