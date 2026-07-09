@@ -197,7 +197,7 @@ app.get(
 app.get(
   "/api/trending",
   wrap(async (req, res) => {
-    res.json({ items: await attachMeta(await getTrending()) });
+    res.json({ items: await attachMeta(await getTrending(20)) });
   })
 );
 
