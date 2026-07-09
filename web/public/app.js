@@ -187,70 +187,102 @@ function waitForClerkScript() {
   });
 }
 
-function showAuthView() {
+// Genuinely-signed-out state: mount Clerk's sign-in widget. Guarded so we
+// NEVER mount it while a Clerk session exists - mounting SignIn when already
+// signed in makes Clerk redirect to "/", which reloads the page and, if the
+// backend can't verify us, loops forever.
+function showSignIn() {
   $("#game-view").hidden = true;
   $("#auth-view").hidden = false;
   $("#auth-loading").hidden = true;
-  // Mount once; Clerk's widget manages its own sign-in/sign-up toggle internally.
+  $("#auth-error").textContent = "";
+  $("#auth-signout").hidden = true;
   const mount = $("#clerk-auth");
-  if (window.Clerk && mount && !mount.dataset.mounted) {
+  mount.hidden = false;
+  if (window.Clerk && !window.Clerk.user && mount && !mount.dataset.mounted) {
     window.Clerk.mountSignIn(mount);
     mount.dataset.mounted = "1";
   }
 }
 
-async function enterGame() {
-  $("#auth-view").hidden = true;
-  $("#game-view").hidden = false;
-  const signedIn = await loadMe();
-  if (!signedIn) {
-    // Clerk says signed in but our backend didn't resolve a matching account
-    // (e.g. CLERK_SECRET_KEY missing/misconfigured server-side) - fail safe
-    // rather than showing a half-loaded game view with no data.
-    showAuthView();
-    $("#auth-error").textContent =
-      "Signed in with Clerk, but the server couldn't verify it. Try again shortly.";
-    // Auto-diagnose: call the debug endpoint *through* api() (so it carries the
-    // token) and print the exact reason to the console. Open DevTools -> Console
-    // to see it. Also expose api() so you can re-run diagnostics manually.
-    window.api = api;
-    try {
-      const diag = await api("/api/debug/auth");
-      console.log("[WikiMarket auth diagnostic]", diag);
-      const hint = {
-        "no-token": "The browser isn't sending a Clerk token. getToken() likely returned null - check that you're actually signed in (window.Clerk.session should be non-null).",
-        "no-secret-key": "The server has no CLERK_SECRET_KEY set. Add it in Railway -> your service -> Variables, then redeploy.",
-        "rejected": "The token was rejected by Clerk - almost always because CLERK_SECRET_KEY belongs to a DIFFERENT Clerk app than the publishable key in index.html. Make sure both keys are from the same Clerk application.",
-        "threw": "Clerk threw during verification - usually a malformed/incorrect CLERK_SECRET_KEY.",
-        "no-sub": "Token verified but had no user id - unexpected; report this.",
-      }[diag.reason];
-      if (hint) console.warn("[WikiMarket auth diagnostic] Likely cause:", hint);
-    } catch (e) {
-      console.error("[WikiMarket auth diagnostic] failed to reach /api/debug/auth:", e);
-    }
-    return;
+// Clerk session exists but our backend couldn't verify it. Show an error with
+// a Sign-out escape hatch, and crucially do NOT mount SignIn (that would loop).
+function showVerifyError(message) {
+  $("#game-view").hidden = true;
+  $("#auth-view").hidden = false;
+  $("#auth-loading").hidden = true;
+  const mount = $("#clerk-auth");
+  if (mount.dataset.mounted && window.Clerk) {
+    window.Clerk.unmountSignIn(mount);
+    delete mount.dataset.mounted;
   }
-  loadSecondary();
-  if (!location.hash) location.hash = "#/overview";
-  renderRoute();
+  mount.hidden = true;
+  $("#auth-error").textContent = message;
+  $("#auth-signout").hidden = false;
+}
+
+let entering = false;
+async function enterGame() {
+  if (entering) return; // the Clerk listener can fire repeatedly; don't stack
+  entering = true;
+  try {
+    const signedIn = await loadMe();
+    if (!signedIn) {
+      // Signed in with Clerk, but the backend didn't resolve a matching
+      // account (CLERK_SECRET_KEY missing/misconfigured server-side). Show the
+      // error state WITHOUT re-mounting SignIn.
+      showVerifyError("Signed in with Clerk, but the server couldn't verify it. See the browser console for the exact reason.");
+      window.api = api; // expose for manual re-runs in the console
+      try {
+        const diag = await api("/api/debug/auth");
+        console.log("[WikiMarket auth diagnostic]", diag);
+        const hint = {
+          "no-token": "The browser isn't sending a Clerk token. getToken() likely returned null - check window.Clerk.session is non-null.",
+          "no-secret-key": "The server has no CLERK_SECRET_KEY set. Add it in Railway -> your service -> Variables, then redeploy.",
+          "rejected": "The token was rejected by Clerk - almost always because CLERK_SECRET_KEY belongs to a DIFFERENT Clerk app than the publishable key in index.html. Make sure both keys are from the same Clerk application.",
+          "threw": "Clerk threw during verification - usually a malformed/incorrect CLERK_SECRET_KEY.",
+          "no-sub": "Token verified but had no user id - unexpected; report this.",
+        }[diag.reason];
+        if (hint) console.warn("[WikiMarket auth diagnostic] Likely cause:", hint);
+      } catch (e) {
+        console.error("[WikiMarket auth diagnostic] failed to reach /api/debug/auth:", e);
+      }
+      return;
+    }
+    $("#auth-view").hidden = true;
+    $("#game-view").hidden = false;
+    loadSecondary();
+    if (!location.hash) location.hash = "#/overview";
+    renderRoute();
+  } finally {
+    entering = false;
+  }
 }
 
 async function initClerk() {
   const Clerk = await waitForClerkScript();
   await Clerk.load();
-  // Fires immediately with the current state, then again on every sign-in/out.
+  // The listener fires immediately with current state, then again on every
+  // resource change (including periodic token refreshes). Dedupe on the user
+  // id so we only react to actual sign-in/out transitions - otherwise a
+  // failing enterGame() would re-run on every tick and hammer the server.
+  let lastUserId = "__init__";
   Clerk.addListener(({ user }) => {
+    const id = user?.id ?? null;
+    if (id === lastUserId) return;
+    lastUserId = id;
     if (user) {
       enterGame();
     } else {
       state.user = null;
       state.me = null;
-      showAuthView();
+      showSignIn();
     }
   });
 }
 
 $("#logout-btn").addEventListener("click", () => window.Clerk?.signOut());
+$("#auth-signout").addEventListener("click", () => window.Clerk?.signOut());
 
 /* ================= data loading ================= */
 
