@@ -31,7 +31,7 @@ const rowToUser = (r) =>
     ? {
         id: r.id,
         username: r.username,
-        passwordHash: r.password_hash,
+        clerkUserId: r.clerk_user_id,
         credits: r.credits,
         createdAt: r.created_at,
       }
@@ -111,7 +111,8 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         CREATE TABLE IF NOT EXISTS users (
           id TEXT PRIMARY KEY,
           username TEXT NOT NULL,
-          password_hash TEXT NOT NULL,
+          password_hash TEXT,
+          clerk_user_id TEXT,
           credits BIGINT NOT NULL,
           created_at BIGINT NOT NULL
         );
@@ -119,6 +120,14 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       // Case-insensitive uniqueness on username.
       await q(
         `CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (lower(username));`
+      );
+      // Auth moved from local password accounts to Clerk. password_hash is
+      // dead weight kept only so existing rows don't break; new rows never
+      // set it. clerk_user_id is the real identity now.
+      await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS clerk_user_id TEXT;`);
+      await q(`ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;`);
+      await q(
+        `CREATE UNIQUE INDEX IF NOT EXISTS users_clerk_user_id_idx ON users (clerk_user_id) WHERE clerk_user_id IS NOT NULL;`
       );
       await q(`
         CREATE TABLE IF NOT EXISTS holdings (
@@ -139,12 +148,6 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       await q(
         `CREATE INDEX IF NOT EXISTS holdings_user_idx ON holdings (user_id);`
       );
-      await q(`
-        CREATE TABLE IF NOT EXISTS sessions (
-          token TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
-        );
-      `);
       await q(`
         CREATE TABLE IF NOT EXISTS page_cache (
           key TEXT PRIMARY KEY,
@@ -216,15 +219,19 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       );
       return rowToUser(rows[0]);
     },
+    async findUserByClerkId(clerkUserId) {
+      const { rows } = await q(`SELECT * FROM users WHERE clerk_user_id = $1`, [clerkUserId]);
+      return rowToUser(rows[0]);
+    },
     async allUsers() {
       const { rows } = await q(`SELECT * FROM users`);
       return rows.map(rowToUser);
     },
     async createUser(user) {
       await q(
-        `INSERT INTO users (id, username, password_hash, credits, created_at)
+        `INSERT INTO users (id, username, clerk_user_id, credits, created_at)
          VALUES ($1, $2, $3, $4, $5)`,
-        [user.id, user.username, user.passwordHash, user.credits, user.createdAt]
+        [user.id, user.username, user.clerkUserId, user.credits, user.createdAt]
       );
       return user;
     },
@@ -243,25 +250,6 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         [userId, delta]
       );
       return rows[0] ? rows[0].credits : null;
-    },
-
-    // --- sessions ---
-    async createSession(token, userId) {
-      await q(`INSERT INTO sessions (token, user_id) VALUES ($1, $2)`, [
-        token,
-        userId,
-      ]);
-      return token;
-    },
-    async userIdForToken(token) {
-      const { rows } = await q(
-        `SELECT user_id FROM sessions WHERE token = $1`,
-        [token]
-      );
-      return rows[0] ? rows[0].user_id : null;
-    },
-    async destroySession(token) {
-      await q(`DELETE FROM sessions WHERE token = $1`, [token]);
     },
 
     // --- holdings ---

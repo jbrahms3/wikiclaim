@@ -17,17 +17,20 @@ const state = {
   ovDays: 30,
   detDays: 30,
   moversTab: "trending",
-  authMode: "login",
   chartSeq: 0,
 };
 
 /* ================= helpers ================= */
 
+// Every API call carries the current Clerk session token as a Bearer header
+// (when signed in). getToken() is cheap - Clerk caches the JWT client-side
+// and only re-fetches near expiry - so it's fine to call on every request.
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
+  const headers = { "Content-Type": "application/json" };
+  const token = await window.Clerk?.session?.getToken().catch(() => null);
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(path, { headers, ...opts });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Request failed");
   return data;
@@ -156,50 +159,74 @@ function bigChartSvg(history, gradId) {
     </svg>`;
 }
 
-/* ================= auth ================= */
+/* ================= auth (Clerk) ================= */
 
-function setAuthMode(mode) {
-  state.authMode = mode;
-  document.querySelectorAll(".tab").forEach((t) =>
-    t.classList.toggle("active", t.dataset.tab === mode)
-  );
-  $("#auth-submit").textContent = mode === "login" ? "Log in" : "Create account";
-  $("#password").autocomplete = mode === "login" ? "current-password" : "new-password";
-  $("#auth-error").textContent = "";
+// The CDN script tag (see index.html <head>) sets window.Clerk once it
+// finishes loading, but that can happen after this script runs, so poll
+// briefly rather than assuming it's already there.
+function waitForClerkScript() {
+  return new Promise((resolve, reject) => {
+    if (window.Clerk) return resolve(window.Clerk);
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries++;
+      if (window.Clerk) {
+        clearInterval(timer);
+        resolve(window.Clerk);
+      } else if (tries > 100) {
+        clearInterval(timer);
+        reject(new Error("Clerk failed to load."));
+      }
+    }, 200);
+  });
 }
 
-document.querySelectorAll(".tab").forEach((tab) =>
-  tab.addEventListener("click", () => setAuthMode(tab.dataset.tab))
-);
-
-$("#auth-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const btn = $("#auth-submit");
-  btn.disabled = true;
-  $("#auth-error").textContent = "";
-  try {
-    await api(`/api/${state.authMode}`, {
-      method: "POST",
-      body: JSON.stringify({
-        username: $("#username").value.trim(),
-        password: $("#password").value,
-      }),
-    });
-    await boot();
-  } catch (err) {
-    $("#auth-error").textContent = err.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-$("#logout-btn").addEventListener("click", async () => {
-  await api("/api/logout", { method: "POST" });
-  state.user = null;
-  state.me = null;
+function showAuthView() {
   $("#game-view").hidden = true;
   $("#auth-view").hidden = false;
-});
+  $("#auth-loading").hidden = true;
+  // Mount once; Clerk's widget manages its own sign-in/sign-up toggle internally.
+  const mount = $("#clerk-auth");
+  if (window.Clerk && mount && !mount.dataset.mounted) {
+    window.Clerk.mountSignIn(mount);
+    mount.dataset.mounted = "1";
+  }
+}
+
+async function enterGame() {
+  $("#auth-view").hidden = true;
+  $("#game-view").hidden = false;
+  const signedIn = await loadMe();
+  if (!signedIn) {
+    // Clerk says signed in but our backend didn't resolve a matching account
+    // (e.g. CLERK_SECRET_KEY missing/misconfigured server-side) - fail safe
+    // rather than showing a half-loaded game view with no data.
+    showAuthView();
+    $("#auth-error").textContent =
+      "Signed in with Clerk, but the server couldn't verify it. Try again shortly.";
+    return;
+  }
+  loadSecondary();
+  if (!location.hash) location.hash = "#/overview";
+  renderRoute();
+}
+
+async function initClerk() {
+  const Clerk = await waitForClerkScript();
+  await Clerk.load();
+  // Fires immediately with the current state, then again on every sign-in/out.
+  Clerk.addListener(({ user }) => {
+    if (user) {
+      enterGame();
+    } else {
+      state.user = null;
+      state.me = null;
+      showAuthView();
+    }
+  });
+}
+
+$("#logout-btn").addEventListener("click", () => window.Clerk?.signOut());
 
 /* ================= data loading ================= */
 
@@ -702,7 +729,7 @@ function renderLeaderboardPage() {
   const tbody = $("#leaderboard-table tbody");
   tbody.innerHTML = "";
   state.leaderboard.forEach((r, i) => {
-    const isMe = state.user && r.username === state.user.username;
+    const isMe = state.user && r.id === state.user.id;
     const tr = document.createElement("tr");
     tr.style.cursor = "default";
     tr.innerHTML = `
@@ -1057,19 +1084,7 @@ async function toggleWatch(article, displayTitle) {
 
 /* ================= boot ================= */
 
-async function boot() {
-  const signedIn = await loadMe();
-  if (!signedIn) {
-    $("#auth-view").hidden = false;
-    $("#game-view").hidden = true;
-    return;
-  }
-  $("#auth-view").hidden = true;
-  $("#game-view").hidden = false;
-  loadSecondary();
-  if (!location.hash) location.hash = "#/overview";
-  renderRoute();
-}
-
-setAuthMode("login");
-boot();
+initClerk().catch((err) => {
+  console.error(err);
+  $("#auth-loading").textContent = "Couldn't load sign-in — please refresh the page.";
+});

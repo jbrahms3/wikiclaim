@@ -272,6 +272,7 @@ export async function leaderboard() {
       }
     }
     rows.push({
+      id: u.id,
       username: u.username,
       credits: u.credits,
       pages: holdings.length,

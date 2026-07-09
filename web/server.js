@@ -1,12 +1,20 @@
-import express from "express";
-import bcrypt from "bcryptjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 
-import { store, uid, token, initStore } from "./store.js";
+// Anchor to this file's own directory, not process.cwd() - Railway runs
+// `npm start` from the repo root (per the monorepo package.json), which
+// would make dotenv's default cwd-relative lookup miss web/.env entirely.
+// Railway itself injects env vars directly, so this is a no-op there either
+// way; it's what makes `cd web && npm start` work for local dev.
+dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), ".env") });
+
+import express from "express";
+import { createClerkClient, verifyToken } from "@clerk/backend";
+
+import { store, uid, initStore } from "./store.js";
 import {
   startingCredits,
-  publicUser,
   portfolio,
   portfolioHistory,
   buyPage,
@@ -28,48 +36,80 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
-const COOKIE = "wc_session";
+const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY;
+if (!CLERK_SECRET_KEY) {
+  console.warn(
+    "CLERK_SECRET_KEY is not set - every request will be treated as signed out, " +
+      "so no one will be able to sign in or transact. Set it in web/.env locally " +
+      "(see .env.example) and in your Railway service's Variables in production."
+  );
+}
+const clerkClient = CLERK_SECRET_KEY ? createClerkClient({ secretKey: CLERK_SECRET_KEY }) : null;
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-// --- minimal cookie parsing / auth middleware ---
-function parseCookies(req) {
-  const header = req.headers.cookie || "";
-  const out = {};
-  for (const part of header.split(";")) {
-    const i = part.indexOf("=");
-    if (i > -1) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+// --- Clerk auth middleware ---
+// The frontend sends the Clerk session token as a Bearer header (see api()
+// in app.js). We verify it against Clerk, then map the Clerk user to our own
+// internal user record - creating one on first sight (just-in-time
+// provisioning), since Clerk owns identity but we still track our own
+// credits/holdings/bets keyed by our own id everywhere else in the app.
+async function resolveUserFromToken(bearerToken) {
+  if (!bearerToken || !CLERK_SECRET_KEY) return null;
+  let clerkUserId;
+  try {
+    const { data, errors } = await verifyToken(bearerToken, { secretKey: CLERK_SECRET_KEY });
+    if (errors || !data?.sub) return null;
+    clerkUserId = data.sub;
+  } catch (err) {
+    console.error("Clerk token verification failed:", err);
+    return null;
   }
-  return out;
+
+  const existing = await store.findUserByClerkId(clerkUserId);
+  if (existing) return existing;
+
+  // First time we've seen this Clerk user - provision our internal record.
+  let displayName = `trader_${clerkUserId.slice(-6)}`;
+  try {
+    const profile = await clerkClient.users.getUser(clerkUserId);
+    displayName =
+      profile.username ||
+      profile.firstName ||
+      profile.emailAddresses?.[0]?.emailAddress?.split("@")[0] ||
+      displayName;
+  } catch (err) {
+    console.error("Failed to fetch Clerk profile for", clerkUserId, err);
+  }
+
+  const user = await store.createUser({
+    id: uid(),
+    clerkUserId,
+    username: displayName,
+    credits: startingCredits(),
+    createdAt: Date.now(),
+  });
+  await logEvent(user.id, "join", {});
+  return user;
 }
 
 app.use((req, res, next) => {
-  const t = parseCookies(req)[COOKIE];
-  Promise.resolve(t ? store.userIdForToken(t) : null)
-    .then((userId) => {
-      req.userId = userId;
+  const auth = req.headers.authorization || "";
+  const bearerToken = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  resolveUserFromToken(bearerToken)
+    .then((user) => {
+      req.userId = user ? user.id : null;
       next();
     })
     .catch(next);
 });
 
 const requireAuth = (req, res, next) => {
-  Promise.resolve(req.userId ? store.getUser(req.userId) : null)
-    .then((user) => {
-      if (!user) return res.status(401).json({ error: "Not signed in." });
-      next();
-    })
-    .catch(next);
+  if (!req.userId) return res.status(401).json({ error: "Not signed in." });
+  next();
 };
-
-function setSessionCookie(res, token) {
-  res.setHeader(
-    "Set-Cookie",
-    `${COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 30}`
-  );
-}
 
 const wrap = (fn) => (req, res) =>
   Promise.resolve(fn(req, res)).catch((err) => {
@@ -108,72 +148,16 @@ async function attachMeta(items) {
   }));
 }
 
-// --- auth routes ---
-app.post(
-  "/api/register",
-  wrap(async (req, res) => {
-    const username = String(req.body.username || "").trim();
-    const password = String(req.body.password || "");
-    if (username.length < 3 || username.length > 20) {
-      throw new Error("Username must be 3-20 characters.");
-    }
-    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-      throw new Error("Username may only contain letters, numbers, and underscores.");
-    }
-    if (password.length < 6) throw new Error("Password must be at least 6 characters.");
-    if (await store.findUserByName(username)) throw new Error("That username is taken.");
-
-    const user = await store.createUser({
-      id: uid(),
-      username,
-      passwordHash: bcrypt.hashSync(password, 10),
-      credits: startingCredits(),
-      createdAt: Date.now(),
-    });
-    const t = await store.createSession(token(), user.id);
-    setSessionCookie(res, t);
-    await logEvent(user.id, "join", {});
-    res.json({ user: publicUser(user) });
-  })
-);
-
-app.post(
-  "/api/login",
-  wrap(async (req, res) => {
-    const username = String(req.body.username || "").trim();
-    const password = String(req.body.password || "");
-    const user = await store.findUserByName(username);
-    if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
-      throw new Error("Invalid username or password.");
-    }
-    const t = await store.createSession(token(), user.id);
-    setSessionCookie(res, t);
-    res.json({ user: publicUser(user) });
-  })
-);
-
-app.post(
-  "/api/logout",
-  wrap(async (req, res) => {
-    const t = parseCookies(req)[COOKIE];
-    if (t) await store.destroySession(t);
-    res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Path=/; Max-Age=0`);
-    res.json({ ok: true });
-  })
-);
-
 // --- game routes ---
 app.get(
   "/api/me",
   wrap(async (req, res) => {
-    if (!req.userId || !(await store.getUser(req.userId))) {
-      return res.json({ user: null });
-    }
+    if (!req.userId) return res.json({ user: null });
     const p = await portfolio(req.userId);
     p.holdings = await attachMeta(p.holdings);
     // Portfolio rank = position on the net-worth leaderboard.
     const rows = await leaderboard();
-    const rank = rows.findIndex((r) => r.username === p.user.username) + 1;
+    const rank = rows.findIndex((r) => r.id === p.user.id) + 1;
     p.rank = rank || null;
     p.totalPlayers = rows.length;
     res.json(p);

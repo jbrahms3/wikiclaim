@@ -41,6 +41,7 @@ Requires Node.js 18+ (uses built-in `fetch`). From this `web/` folder:
 
 ```bash
 npm install
+cp .env.example .env   # then fill in CLERK_SECRET_KEY
 npm start
 ```
 
@@ -49,6 +50,31 @@ port with `PORT=8080 npm start`.
 
 With no `DATABASE_URL` set, the app stores everything in a local JSON file
 (`data/db.json`) — zero setup. Set `DATABASE_URL` to use Postgres instead.
+
+## Authentication (Clerk)
+
+Sign-up/sign-in is handled entirely by [Clerk](https://clerk.com) — this app
+has no password storage of its own. **Signing in is required to buy, sell, or
+place a prediction**; every mutating route verifies the request server-side,
+not just the UI.
+
+- **Frontend**: `public/index.html` loads Clerk via a CDN script tag (no
+  bundler needed) using a publishable key — safe to be public, already
+  hardcoded there. It mounts Clerk's own sign-in widget into `#clerk-auth`.
+  `app.js` attaches the current Clerk session token as an `Authorization:
+  Bearer <token>` header on every API call.
+- **Backend**: `server.js` verifies that Bearer token against Clerk
+  (`@clerk/backend`'s `verifyToken`) on every request. This needs
+  **`CLERK_SECRET_KEY`** set — get it from your Clerk dashboard's *API Keys*
+  page. **Never commit it or share it** — anyone with it can impersonate your
+  users. Locally it's read from `web/.env` (see `.env.example`); on Railway,
+  set it as a Variable instead (no `.env` file is deployed there).
+- **Accounts are provisioned just-in-time**: the first time a Clerk user is
+  seen, the server creates a matching internal record (250 starting credits)
+  automatically — there's no separate "register" step in this app.
+- If `CLERK_SECRET_KEY` isn't set, the server logs a warning on boot and
+  treats every request as signed out — sign-in and all transactions fail
+  closed rather than silently allowing unauthenticated access.
 
 ## Storage backends
 
@@ -81,7 +107,13 @@ server. **No Root Directory setting is needed.**
    ```
    Railway resolves that to the Postgres plugin's connection string (private
    network, so no SSL needed — the app detects this automatically).
-4. **Deploy** — Railway auto-detects Node from the root `package.json`, runs
+4. **Add your Clerk secret key** — same *Variables* tab:
+   ```
+   CLERK_SECRET_KEY = sk_...
+   ```
+   from your Clerk dashboard's *API Keys* page. Without this, the deployed
+   app boots fine but no one can sign in or transact (see Authentication above).
+5. **Deploy** — Railway auto-detects Node from the root `package.json`, runs
    `npm install` (which also installs `web/`'s dependencies via
    `postinstall`), then `npm start` (`node web/server.js`), and health-checks
    `/api/leaderboard` per [`railway.json`](../railway.json). On first boot the
@@ -95,7 +127,7 @@ server boots, serves the SPA and API, and the healthcheck path returns 200.
 
 No native dependencies beyond `pg`, so it installs cleanly on any platform.
 
-- `server.js` — Express app: static hosting, JSON API, cookie/token auth.
+- `server.js` — Express app: static hosting, JSON API, Clerk token verification.
 - `game.js` — game rules: buying, selling, per-day settlement, portfolio,
   leaderboard. Uses atomic credit updates and a compare-and-set on settlement
   so concurrent requests can't double-credit.
@@ -107,12 +139,13 @@ No native dependencies beyond `pg`, so it installs cleanly on any platform.
 
 ### API (all JSON)
 
+All routes marked "auth" require a Clerk session token as an `Authorization:
+Bearer <token>` header; there's no separate register/login/logout — that's
+entirely handled by Clerk's widget on the frontend.
+
 | Method | Route              | Purpose                                   |
 | ------ | ------------------ | ----------------------------------------- |
-| POST   | `/api/register`    | Create account (250 starting credits)     |
-| POST   | `/api/login`       | Log in                                    |
-| POST   | `/api/logout`      | Log out                                   |
-| GET    | `/api/me`          | Portfolio + settle earnings (auth)        |
+| GET    | `/api/me`          | Portfolio + settle earnings; JIT-provisions the account on first call (auth) |
 | GET    | `/api/search?q=`   | Search articles, priced (auth)            |
 | POST   | `/api/buy`         | Buy a page (auth)                         |
 | POST   | `/api/sell`        | Sell a page (auth)                        |
@@ -140,11 +173,11 @@ movers, a live activity feed, and per-article detail pages with charts.
 
 - English Wikipedia only for now (the data model stores a project/lang per
   holding, so extending to other languages is straightforward).
-- Passwords are hashed with bcrypt. Sessions are opaque tokens in an
-  HttpOnly cookie. This is a game demo, not hardened production auth — put it
-  behind HTTPS and add rate limiting before exposing it publicly.
+- Auth/identity is entirely Clerk's; put the app behind HTTPS and add rate
+  limiting before exposing it publicly, same as any real deployment.
 - Reset the game by deleting `data/db.json` (JSON mode) or clearing the
-  Postgres tables (`users`, `holdings`, `sessions`, `page_cache`, `watchlist`,
-  `activity`, `bets`).
+  Postgres tables (`users`, `holdings`, `page_cache`, `watchlist`, `activity`,
+  `bets`). Deleting rows doesn't touch Clerk — accounts stay valid there and
+  simply get re-provisioned (with fresh starting credits) on next sign-in.
 - Pageview prices are cached for 6 hours to be a good API citizen, so a
   page's price won't change more than a few times a day.

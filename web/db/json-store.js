@@ -14,7 +14,6 @@ const DB_PATH = path.join(DATA_DIR, "db.json");
 const EMPTY = {
   users: {},
   holdings: {},
-  sessions: {},
   pageCache: {},
   watchlist: {}, // "userId::project::article" -> { userId, project, article, displayTitle, addedAt }
   activity: [], // newest last; capped
@@ -74,6 +73,11 @@ export function createJsonStore() {
         ) || null
       );
     },
+    async findUserByClerkId(clerkUserId) {
+      return (
+        copy(Object.values(db.users).find((u) => u.clerkUserId === clerkUserId)) || null
+      );
+    },
     async allUsers() {
       return Object.values(db.users).map(copy);
     },
@@ -97,20 +101,6 @@ export function createJsonStore() {
       u.credits += delta;
       persist();
       return u.credits;
-    },
-
-    // --- sessions ---
-    async createSession(token, userId) {
-      db.sessions[token] = userId;
-      persist();
-      return token;
-    },
-    async userIdForToken(token) {
-      return db.sessions[token] || null;
-    },
-    async destroySession(token) {
-      delete db.sessions[token];
-      persist();
     },
 
     // --- holdings ---

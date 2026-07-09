@@ -127,14 +127,7 @@ input::placeholder { color: #9aa0a6; }
 }
 .tagline { color: var(--muted); line-height: 1.6; font-size: 13.5px; }
 .tagline strong { color: var(--accent); }
-.tabs { display: flex; gap: 6px; margin: 18px 0 14px; background: var(--card); padding: 4px; border-radius: 10px; border: 1px solid var(--border); }
-.tab {
-  flex: 1; padding: 8px; border-radius: 8px; border: none;
-  background: transparent; color: var(--muted); cursor: pointer;
-  font-weight: 600; font-size: 13px; font-family: inherit;
-}
-.tab.active { background: var(--bg); color: var(--text); box-shadow: var(--shadow); }
-#auth-form { display: flex; flex-direction: column; gap: 10px; }
+#clerk-auth { margin-top: 18px; }
 
 /* ---------- Shell ---------- */
 .shell { display: flex; min-height: 100vh; }

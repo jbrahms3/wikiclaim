@@ -6,7 +6,6 @@ import { createJsonStore } from "./db/json-store.js";
 import { createPgStore } from "./db/pg-store.js";
 
 export const uid = () => crypto.randomUUID();
-export const token = () => crypto.randomBytes(24).toString("hex");
 
 export const store = process.env.DATABASE_URL ? createPgStore() : createJsonStore();
 
