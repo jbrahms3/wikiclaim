@@ -228,19 +228,34 @@ input::placeholder { color: #9aa0a6; }
   font-weight: 700; font-size: 13px; text-transform: uppercase;
 }
 
-/* ---------- Ticker ---------- */
+/* ---------- Ticker (auto-scrolling marquee) ---------- */
 .ticker {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}
+.ticker-track {
   display: flex;
   gap: 26px;
   align-items: center;
-  padding: 9px 24px;
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
+  width: max-content;
   white-space: nowrap;
-  scrollbar-width: none;
-  background: var(--bg);
+  animation: ticker-scroll linear infinite;
+  animation-duration: var(--ticker-duration, 40s);
 }
-.ticker::-webkit-scrollbar { display: none; }
+/* Pause to let someone actually read a number, resume on mouse-out. */
+.ticker:hover .ticker-track { animation-play-state: paused; }
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track { animation: none; }
+  .ticker { overflow-x: auto; }
+}
 .tick {
   display: inline-flex;
   align-items: center;

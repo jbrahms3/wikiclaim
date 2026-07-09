@@ -250,9 +250,10 @@ function renderChrome() {
 }
 
 function renderTicker() {
-  const el = $("#ticker");
+  const track = $("#ticker-track");
   if (!state.categories.length) return;
-  el.innerHTML = state.categories
+
+  const tickHtml = state.categories
     .map((c) => {
       const up = (c.changePct || 0) >= 0;
       return `<span class="tick">
@@ -263,6 +264,12 @@ function renderTicker() {
       </span>`;
     })
     .join("");
+
+  // Duplicate the run so a 0 -> -50% translate loops seamlessly with no gap,
+  // and keep speed consistent (not "faster with fewer items") by scaling
+  // duration with how many categories there are.
+  track.innerHTML = tickHtml + tickHtml;
+  track.style.setProperty("--ticker-duration", `${state.categories.length * 4}s`);
 }
 
 /* ================= router ================= */
