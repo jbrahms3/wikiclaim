@@ -63,15 +63,19 @@ async function verifyClerkToken(bearerToken) {
   if (!bearerToken) return { reason: "no-token" };
   if (!CLERK_SECRET_KEY) return { reason: "no-secret-key" };
   try {
-    const { data, errors } = await verifyToken(bearerToken, { secretKey: CLERK_SECRET_KEY });
-    // verifyToken reports invalid/expired/mismatched tokens as a normal
-    // {errors} return value, not a thrown exception.
+    const result = await verifyToken(bearerToken, { secretKey: CLERK_SECRET_KEY });
+    // {data, errors} is the documented shape per the SDK's own .d.ts, but
+    // what we're seeing (no-sub with an apparently undefined payload)
+    // shouldn't be reachable through that contract - stop assuming the shape
+    // and surface exactly what's there. Object.keys() matters here because
+    // JSON.stringify silently drops undefined-valued keys, which would hide
+    // the very thing we're trying to see.
+    const rawKeys = Object.keys(result || {});
+    console.error("Clerk verifyToken raw result:", JSON.stringify(result), "keys:", rawKeys);
+    const { data, errors } = result || {};
     if (errors) return { reason: "rejected", detail: errors[0]?.message || String(errors) };
     if (!data?.sub) {
-      // This shouldn't be reachable - Clerk's own claim validation rejects a
-      // token with no `sub` as an error, not a success. Dump the actual shape
-      // so we can see what's really coming back instead of guessing further.
-      return { reason: "no-sub", detail: JSON.stringify(data) };
+      return { reason: "no-sub", detail: `raw=${JSON.stringify(result)} keys=[${rawKeys}]` };
     }
     return { clerkUserId: data.sub };
   } catch (err) {
