@@ -20,6 +20,10 @@ import {
 // articles while leaving real progression required for popular ones.
 const STARTING_CREDITS = 5000;
 
+// Milestone for the Points page's progress bar - reaching this balance earns
+// a real $100 gift card (fulfilled manually, outside the app).
+export const POINTS_GOAL = 1_000_000;
+
 function fmtDate(d) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}`;
@@ -65,7 +69,14 @@ export async function settleHolding(holding) {
   );
   if (!applied) return 0;
 
-  if (earned > 0) await store.addCredits(holding.userId, earned);
+  if (earned > 0) {
+    await store.addCredits(holding.userId, earned);
+    await logEvent(holding.userId, "earn", {
+      article: holding.article,
+      displayTitle: holding.displayTitle,
+      amount: earned,
+    });
+  }
   return earned;
 }
 
@@ -221,6 +232,7 @@ export async function logEvent(userId, type, { article, displayTitle, amount } =
       id: uid(),
       ts: Date.now(),
       type,
+      userId,
       username: user ? user.username : "someone",
       article: article ?? null,
       displayTitle: displayTitle ?? null,
@@ -233,6 +245,24 @@ export async function logEvent(userId, type, { article, displayTitle, amount } =
 
 export async function recentActivity(limit = 30) {
   return store.recentActivity(limit);
+}
+
+/**
+ * A user's earning events (daily settlement credits + prediction payouts),
+ * newest first - the Points page's history list/chart. Only logs events
+ * created after this feature shipped; earlier silent settlements (before
+ * settleHolding started logging "earn" events) aren't retroactively added.
+ */
+export async function earningsHistory(userId, limit = 100) {
+  const events = await store.activityForUser(userId, 500);
+  return events.filter((e) => e.type === "earn" || e.type === "bet-resolved").slice(0, limit);
+}
+
+/** Balance + progress-to-goal + earnings history for the Points page. */
+export async function pointsSummary(userId) {
+  const user = await store.getUser(userId);
+  const history = await earningsHistory(userId);
+  return { credits: user.credits, goal: POINTS_GOAL, history };
 }
 
 /** Sell a page back to the market at its current price. */

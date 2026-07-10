@@ -59,6 +59,10 @@
             <svg viewBox="0 0 24 24"><path d="M3 12 12 4l9 8M5 10v10h5v-6h4v6h5V10"/></svg>
             Overview
           </a>
+          <a class="nav-item" href="#/points" data-route="points">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 15.3c.4 1 1.4 1.6 2.5 1.6 1.7 0 3-1 3-2.4S13.7 12 12 12s-3-1-3-2.5 1.3-2.4 3-2.4c1.1 0 2.1.6 2.5 1.6M12 6.3v1.4M12 16.3v1.4"/></svg>
+            Points
+          </a>
           <a class="nav-item" href="#/market" data-route="market">
             <svg viewBox="0 0 24 24"><path d="M4 19V9m5 10V5m5 14v-7m5 7V8"/></svg>
             Market
@@ -82,11 +86,11 @@
         </nav>
 
         <div class="sidebar-footer">
-          <div class="side-card">
+          <a class="side-card" href="#/points">
             <div class="side-card-label">Wiki Points</div>
             <div class="side-card-value" id="side-credits">0</div>
-            <div class="side-card-hint">Spendable balance</div>
-          </div>
+            <div class="side-card-hint">Spendable balance — view progress</div>
+          </a>
           <button id="logout-btn" class="btn-ghost logout">Log out</button>
         </div>
       </aside>
@@ -184,6 +188,54 @@
                   <ul class="feed" id="ov-activity"></ul>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <!-- Points -->
+          <section class="page" id="page-points" hidden>
+            <h1 class="page-title">Your Points</h1>
+            <p class="page-hint">Your Wiki Points balance, where it came from, and your progress toward the reward.</p>
+
+            <div class="card points-hero">
+              <div class="points-balance">
+                <div class="side-card-label">Current Balance</div>
+                <div class="points-balance-value" id="pts-balance">0</div>
+              </div>
+              <div class="progress-wrap">
+                <div class="progress-labels">
+                  <span id="pts-progress-current">0 pts</span>
+                  <span class="progress-goal">🎁 1,000,000 pts = $100 gift card</span>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill" id="pts-progress-fill" style="width:0%"></div>
+                </div>
+                <div class="progress-footer" id="pts-progress-footer">0% of the way there</div>
+              </div>
+            </div>
+
+            <div class="card chart-card">
+              <div class="chart-head">
+                <div>
+                  <div class="chart-value" id="pts-chart-value">0</div>
+                  <div class="chart-caption">points earned per day, recent history</div>
+                </div>
+              </div>
+              <div class="chart-holder" id="pts-chart">
+                <div class="chart-empty">No earnings yet — buy an article to start earning.</div>
+              </div>
+            </div>
+
+            <div class="card table-card">
+              <div class="card-head"><h2>Earnings History</h2></div>
+              <table class="table" id="points-history-table">
+                <thead>
+                  <tr><th>Article</th><th>Source</th><th>When</th><th>Points</th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+              <p class="empty" id="points-history-empty" hidden>
+                No earnings yet — buy an article in the <a href="#/market">Market</a> and check back tomorrow.
+              </p>
             </div>
           </section>
 

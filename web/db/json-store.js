@@ -179,6 +179,13 @@ export function createJsonStore() {
     async recentActivity(limit) {
       return db.activity.slice(-limit).reverse().map(copy);
     },
+    async activityForUser(userId, limit) {
+      return db.activity
+        .filter((e) => e.userId === userId)
+        .slice(-limit)
+        .reverse()
+        .map(copy);
+    },
 
     // --- bets (24h directional price predictions) ---
     async createBet(bet) {

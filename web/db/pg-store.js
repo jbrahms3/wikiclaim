@@ -54,6 +54,20 @@ const rowToHolding = (r) =>
       }
     : null;
 
+const rowToActivity = (r) =>
+  r
+    ? {
+        id: r.id,
+        ts: r.ts,
+        type: r.type,
+        userId: r.user_id,
+        username: r.username,
+        article: r.article,
+        displayTitle: r.display_title,
+        amount: r.amount,
+      }
+    : null;
+
 const rowToBet = (r) =>
   r
     ? {
@@ -188,6 +202,11 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         );
       `);
       await q(`CREATE INDEX IF NOT EXISTS activity_ts_idx ON activity (ts DESC);`);
+      // Added after the initial schema shipped, so events logged before
+      // this need to be nullable - the Points page's history just won't
+      // show anything for those (see earningsHistory in game.js).
+      await q(`ALTER TABLE activity ADD COLUMN IF NOT EXISTS user_id TEXT;`);
+      await q(`CREATE INDEX IF NOT EXISTS activity_user_idx ON activity (user_id, ts DESC);`);
       await q(`
         CREATE TABLE IF NOT EXISTS bets (
           id TEXT PRIMARY KEY,
@@ -364,10 +383,10 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     // --- activity feed ---
     async logActivity(event) {
       await q(
-        `INSERT INTO activity (id, ts, type, username, article, display_title, amount)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        `INSERT INTO activity (id, ts, type, username, article, display_title, amount, user_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
         [event.id, event.ts, event.type, event.username, event.article ?? null,
-         event.displayTitle ?? null, event.amount ?? null]
+         event.displayTitle ?? null, event.amount ?? null, event.userId ?? null]
       );
     },
     async recentActivity(limit) {
@@ -375,15 +394,14 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         `SELECT * FROM activity ORDER BY ts DESC LIMIT $1`,
         [limit]
       );
-      return rows.map((r) => ({
-        id: r.id,
-        ts: r.ts,
-        type: r.type,
-        username: r.username,
-        article: r.article,
-        displayTitle: r.display_title,
-        amount: r.amount,
-      }));
+      return rows.map(rowToActivity);
+    },
+    async activityForUser(userId, limit) {
+      const { rows } = await q(
+        `SELECT * FROM activity WHERE user_id = $1 ORDER BY ts DESC LIMIT $2`,
+        [userId, limit]
+      );
+      return rows.map(rowToActivity);
     },
 
     // --- bets (24h directional price predictions) ---

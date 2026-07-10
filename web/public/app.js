@@ -379,7 +379,7 @@ function renderTicker() {
 
 /* ================= router ================= */
 
-const PAGES = ["overview", "market", "watchlist", "predictions", "leaderboard", "activity", "article"];
+const PAGES = ["overview", "points", "market", "watchlist", "predictions", "leaderboard", "activity", "article"];
 
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, "");
@@ -408,6 +408,7 @@ function renderRoute() {
   });
 
   if (page === "overview") renderOverview();
+  else if (page === "points") renderPointsPage();
   else if (page === "market") renderMarket();
   else if (page === "watchlist") renderWatchlistPage();
   else if (page === "predictions") renderPredictionsPage();
@@ -615,6 +616,84 @@ function renderOvActivity() {
     const li = document.createElement("li");
     li.innerHTML = feedItemHtml(ev);
     ul.appendChild(li);
+  }
+}
+
+/* ================= points ================= */
+
+// Groups earning events (irregular timestamps, one lump per lazy settlement
+// catch-up) into calendar-day totals so they can drive the same big-chart
+// component the Overview/Article pages use.
+function bucketEarningsByDay(history) {
+  const totals = new Map();
+  for (const ev of history) {
+    const d = new Date(ev.ts);
+    const key = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+    totals.set(key, (totals.get(key) || 0) + (ev.amount || 0));
+  }
+  return [...totals.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([date, views]) => ({ date, views }));
+}
+
+function updateProgressBar(credits, goal) {
+  const pct = Math.min(100, (credits / goal) * 100);
+  const fill = $("#pts-progress-fill");
+  fill.style.width = `${pct}%`;
+  fill.classList.toggle("goal-reached", credits >= goal);
+  $("#pts-progress-current").textContent = `${fmt(credits)} pts`;
+  $("#pts-progress-footer").textContent =
+    credits >= goal
+      ? "🎉 You've passed 1,000,000 points — you've earned a $100 gift card!"
+      : `${pct < 1 ? pct.toFixed(2) : Math.round(pct)}% of the way to 1,000,000 pts`;
+}
+
+async function renderPointsPage() {
+  if (state.me) $("#pts-balance").textContent = fmt(state.me.user.credits);
+
+  const holder = $("#pts-chart");
+  const tbody = $("#points-history-table tbody");
+  holder.innerHTML = `<div class="chart-empty">Loading…</div>`;
+  tbody.innerHTML = `<tr><td colspan="4" class="empty">Loading…</td></tr>`;
+
+  let data;
+  try {
+    data = await api("/api/points");
+  } catch (err) {
+    holder.innerHTML = `<div class="chart-empty">Couldn't load points.</div>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">${escapeHtml(err.message)}</td></tr>`;
+    return;
+  }
+  if (state.route.page !== "points") return;
+
+  $("#pts-balance").textContent = fmt(data.credits);
+  updateProgressBar(data.credits, data.goal);
+
+  const series = bucketEarningsByDay(data.history);
+  const total = series.reduce((s, d) => s + d.views, 0);
+  $("#pts-chart-value").textContent = `+${fmt(total)}`;
+  holder.innerHTML = series.length
+    ? bigChartSvg(series, "gradPoints")
+    : `<div class="chart-empty">No earnings yet — buy an article to start earning.</div>`;
+
+  $("#points-history-empty").hidden = data.history.length > 0;
+  $("#points-history-table").hidden = data.history.length === 0;
+  tbody.innerHTML = "";
+  for (const ev of data.history) {
+    const source = ev.type === "bet-resolved" ? "Prediction payout" : "Daily earnings";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>
+        <div class="cell-article">
+          ${thumbHtml(ev)}
+          <div class="cell-title">${escapeHtml(ev.displayTitle || "")}</div>
+        </div>
+      </td>
+      <td>${source}</td>
+      <td class="muted">${relTime(ev.ts)}</td>
+      <td class="num pos">+${fmt(ev.amount)}</td>`;
+    if (ev.article) tr.addEventListener("click", () => openArticle(ev.article));
+    tbody.appendChild(tr);
   }
 }
 

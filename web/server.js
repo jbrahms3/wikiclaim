@@ -24,6 +24,7 @@ import {
   logEvent,
   placeBet,
   listBets,
+  pointsSummary,
 } from "./game.js";
 import {
   searchArticles,
@@ -431,6 +432,15 @@ app.get(
   "/api/leaderboard",
   wrap(async (req, res) => {
     res.json({ rows: await leaderboard() });
+  })
+);
+
+app.get(
+  "/api/points",
+  requireAuth,
+  wrap(async (req, res) => {
+    const summary = await pointsSummary(req.userId);
+    res.json({ ...summary, history: await attachMeta(summary.history) });
   })
 );
 
