@@ -557,8 +557,10 @@ function renderMovers() {
   const ul = $("#ov-movers");
   ul.innerHTML = "";
   let items = [...state.trending];
+  // No "losers" tab: Wikimedia's pageviews API has no top-decliners metric,
+  // and computing real ones would mean diffing per-article time series
+  // across a huge swath of Wikipedia - not feasible from this candidate pool.
   if (state.moversTab === "gainers") items.sort((a, b) => (b.changePct || 0) - (a.changePct || 0));
-  else if (state.moversTab === "losers") items.sort((a, b) => (a.changePct || 0) - (b.changePct || 0));
   else items.sort((a, b) => (b.price || 0) - (a.price || 0));
   if (!items.length) {
     ul.innerHTML = `<li class="empty">Loading market data…</li>`;
