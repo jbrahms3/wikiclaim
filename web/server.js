@@ -64,20 +64,20 @@ async function verifyClerkToken(bearerToken) {
   if (!CLERK_SECRET_KEY) return { reason: "no-secret-key" };
   try {
     const result = await verifyToken(bearerToken, { secretKey: CLERK_SECRET_KEY });
-    // {data, errors} is the documented shape per the SDK's own .d.ts, but
-    // what we're seeing (no-sub with an apparently undefined payload)
-    // shouldn't be reachable through that contract - stop assuming the shape
-    // and surface exactly what's there. Object.keys() matters here because
-    // JSON.stringify silently drops undefined-valued keys, which would hide
-    // the very thing we're trying to see.
-    const rawKeys = Object.keys(result || {});
-    console.error("Clerk verifyToken raw result:", JSON.stringify(result), "keys:", rawKeys);
-    const { data, errors } = result || {};
-    if (errors) return { reason: "rejected", detail: errors[0]?.message || String(errors) };
-    if (!data?.sub) {
-      return { reason: "no-sub", detail: `raw=${JSON.stringify(result)} keys=[${rawKeys}]` };
+    // Confirmed empirically (the .d.ts types this as {data}|{errors}, but
+    // that's not what actually comes back at runtime in this installed
+    // version): a successful result has the JWT claims directly on the
+    // object (result.sub, result.iss, ...), not wrapped in result.data. An
+    // errored result has result.errors. Support both shapes defensively
+    // since the wrapped form is still what's documented.
+    if (result?.errors) {
+      return { reason: "rejected", detail: result.errors[0]?.message || String(result.errors) };
     }
-    return { clerkUserId: data.sub };
+    const sub = result?.sub ?? result?.data?.sub;
+    if (!sub) {
+      return { reason: "no-sub", detail: `raw=${JSON.stringify(result)}` };
+    }
+    return { clerkUserId: sub };
   } catch (err) {
     return { reason: "threw", detail: err?.message || String(err) };
   }
