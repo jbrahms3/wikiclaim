@@ -319,11 +319,16 @@ export async function leaderboard() {
 }
 
 /**
- * Predictions: a 24h directional bet on an article's price (its annualPrice,
- * the same number shown everywhere as "price") rather than owning the page
- * itself. Stake is escrowed (debited) immediately; payout is settled lazily,
- * the same pattern as holdings - no cron, resolved whenever the bettor is
- * next active, past-due bets are just caught up on read.
+ * Predictions: a 24h directional bet on an article's daily view count (the
+ * same number shown elsewhere as "Views (24h)") rather than its price.
+ * Price has built-in upward drift for weeks after any spike (it's baked from
+ * a rolling 30-day view total, see wikimedia.js), which made "will the price
+ * go up" a near-free bet on anything already trending. Raw daily views don't
+ * have that inertia - they're genuinely volatile day to day, so calling the
+ * direction takes an actual read on the article. Stake is escrowed (debited)
+ * immediately; payout is settled lazily, the same pattern as holdings - no
+ * cron, resolved whenever the bettor is next active, past-due bets are just
+ * caught up on read.
  */
 const BET_DURATION_MS = 24 * 60 * 60 * 1000;
 const MIN_STAKE = 1;
@@ -338,13 +343,14 @@ export async function placeBet(userId, { project, article, displayTitle, directi
   }
 
   // Force a live check, same as buying - refuse rather than lock in a bet
-  // against a stale or bogus starting price.
+  // against a stale or bogus starting view count.
   const price = await getPagePrice(project, article, { force: true });
   if (price.unpriced) {
     throw new Error(
-      "Couldn't verify this article's price right now (Wikimedia's stats API returned no data). Try again in a few seconds."
+      "Couldn't verify this article's views right now (Wikimedia's stats API returned no data). Try again in a few seconds."
     );
   }
+  const startViews = Math.max(1, price.latestViews ?? price.avgViews);
 
   const creditsLeft = await store.tryDebit(userId, stake);
   if (creditsLeft === null) {
@@ -363,11 +369,11 @@ export async function placeBet(userId, { project, article, displayTitle, directi
     displayTitle,
     direction,
     stake,
-    startPrice: price.annualPrice,
+    startViews,
     placedAt: now,
     resolvesAt: now + BET_DURATION_MS,
     status: "open",
-    endPrice: null,
+    endViews: null,
     payout: null,
     resolvedAt: null,
   };
@@ -378,28 +384,28 @@ export async function placeBet(userId, { project, article, displayTitle, directi
 
 /**
  * Resolve one bet if its window has passed. Payout scales with the real
- * % price move: guess the direction right and get more than your stake
- * back, wrong and get less (floored at 0 - you can't lose more than you
- * staked). A Wikimedia hiccup at resolution time refunds the stake instead
- * of penalizing the player for an API outage.
+ * % move in daily views: guess the direction right and get more than your
+ * stake back, wrong and get less (floored at 0 - you can't lose more than
+ * you staked). A Wikimedia hiccup at resolution time refunds the stake
+ * instead of penalizing the player for an API outage.
  */
 async function resolveBetIfDue(bet) {
   if (bet.status !== "open" || Date.now() < bet.resolvesAt) return null;
 
-  let endPrice = bet.startPrice;
+  let endViews = bet.startViews;
   try {
     const price = await getPagePrice(bet.project, bet.article, { force: true });
-    if (!price.unpriced) endPrice = price.annualPrice;
+    if (!price.unpriced) endViews = Math.max(1, price.latestViews ?? price.avgViews);
   } catch {
-    /* endPrice stays at startPrice -> break-even refund */
+    /* endViews stays at startViews -> break-even refund */
   }
 
-  const pctChange = (endPrice - bet.startPrice) / bet.startPrice;
+  const pctChange = (endViews - bet.startViews) / bet.startViews;
   const signedPct = bet.direction === "up" ? pctChange : -pctChange;
   const payout = Math.max(0, Math.round(bet.stake * (1 + signedPct)));
 
   const applied = await store.resolveBet(bet.id, {
-    endPrice,
+    endViews,
     payout,
     resolvedAt: Date.now(),
   });
@@ -426,7 +432,7 @@ export async function settleBets(userId) {
   }
 }
 
-/** Open bets (with a live current price for an in-progress win/loss read) + recent history. */
+/** Open bets (with a live current view count for an in-progress win/loss read) + recent history. */
 export async function listBets(userId) {
   await settleBets(userId);
   const [openRaw, resolvedRaw] = await Promise.all([
@@ -436,14 +442,14 @@ export async function listBets(userId) {
 
   const open = await Promise.all(
     openRaw.map(async (b) => {
-      let currentPrice = b.startPrice;
+      let currentViews = b.startViews;
       try {
         const p = await getPagePrice(b.project, b.article);
-        if (!p.unpriced) currentPrice = p.annualPrice;
+        if (!p.unpriced) currentViews = Math.max(1, p.latestViews ?? p.avgViews);
       } catch {
-        /* show start price as a fallback */
+        /* show start views as a fallback */
       }
-      return { ...b, currentPrice };
+      return { ...b, currentViews };
     })
   );
 

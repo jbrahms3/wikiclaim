@@ -68,6 +68,9 @@ const rowToActivity = (r) =>
       }
     : null;
 
+// Predictions resolve against daily views now, not price (see game.js) - the
+// start_price/end_price columns kept their names to avoid a migration, but
+// hold view counts, not prices.
 const rowToBet = (r) =>
   r
     ? {
@@ -78,11 +81,11 @@ const rowToBet = (r) =>
         displayTitle: r.display_title,
         direction: r.direction,
         stake: r.stake,
-        startPrice: r.start_price,
+        startViews: r.start_price,
         placedAt: r.placed_at,
         resolvesAt: r.resolves_at,
         status: r.status,
-        endPrice: r.end_price,
+        endViews: r.end_price,
         payout: r.payout,
         resolvedAt: r.resolved_at,
       }
@@ -413,7 +416,7 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open')`,
         [
           bet.id, bet.userId, bet.project, bet.article, bet.displayTitle,
-          bet.direction, bet.stake, bet.startPrice, bet.placedAt, bet.resolvesAt,
+          bet.direction, bet.stake, bet.startViews, bet.placedAt, bet.resolvesAt,
         ]
       );
       return bet;
@@ -434,7 +437,7 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         `UPDATE bets
            SET status = 'resolved', end_price = $2, payout = $3, resolved_at = $4
          WHERE id = $1 AND status = 'open'`,
-        [id, updates.endPrice, updates.payout, updates.resolvedAt]
+        [id, updates.endViews, updates.payout, updates.resolvedAt]
       );
       return rowCount > 0;
     },

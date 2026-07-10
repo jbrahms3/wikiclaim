@@ -33,11 +33,15 @@ climb the shared net-worth leaderboard.
 - **Net worth** = credits + current value of all your pages. The leaderboard
   ranks everyone by net worth.
 - **Predictions**: instead of owning a page, stake credits on whether its
-  price will be higher or lower 24 hours from now. Resolves lazily (same
-  pattern as daily earnings, no cron) against the real price move: guess
-  right and get back more than your stake, guess wrong and get back less
-  (floored at 0). A Wikimedia hiccup at resolution time refunds the stake
-  rather than penalizing you.
+  *daily views* (not price) will be higher or lower 24 hours from now.
+  Views, not price, on purpose: price is built from a rolling 30-day traffic
+  total, so it drifts upward for weeks after any spike regardless of what
+  happens next - betting "up" on it was nearly free money on anything
+  already trending. Raw daily views have no such inertia. Resolves lazily
+  (same pattern as daily earnings, no cron) against the real view-count
+  move: guess right and get back more than your stake, guess wrong and get
+  back less (floored at 0). A Wikimedia hiccup at resolution time refunds
+  the stake rather than penalizing you.
 
 ## Run it locally
 
@@ -163,7 +167,7 @@ entirely handled by Clerk's widget on the frontend.
 | POST   | `/api/watchlist/toggle` | Watch/unwatch an article (auth)      |
 | POST   | `/api/reprice`     | Force a fresh price check for one article (auth) |
 | GET    | `/api/activity`    | Recent market events (claims, sells, joins, predictions) |
-| POST   | `/api/bet`         | Place a 24h up/down price prediction (auth) |
+| POST   | `/api/bet`         | Place a 24h up/down daily-views prediction (auth) |
 | GET    | `/api/bets`        | Your open (settles due ones first) + resolved predictions (auth) |
 
 The UI is **WikiMarket** — a light-themed, Robinhood-style trading dashboard:

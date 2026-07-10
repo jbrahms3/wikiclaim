@@ -822,7 +822,7 @@ function renderPredictionsPage() {
   $("#bets-open-table").hidden = open.length === 0;
   openTbody.innerHTML = "";
   for (const b of open) {
-    const pctChange = (b.currentPrice - b.startPrice) / b.startPrice;
+    const pctChange = (b.currentViews - b.startViews) / b.startViews;
     const signedPct = b.direction === "up" ? pctChange : -pctChange;
     const estPayout = Math.max(0, Math.round(b.stake * (1 + signedPct)));
     const tr = document.createElement("tr");
@@ -835,7 +835,7 @@ function renderPredictionsPage() {
       </td>
       <td>${b.direction === "up" ? "▲ Up" : "▼ Down"}</td>
       <td class="num">${fmt(b.stake)}</td>
-      <td class="num">${fmt(b.startPrice)} → ${fmt(b.currentPrice)}</td>
+      <td class="num">${fmt(b.startViews)} → ${fmt(b.currentViews)}</td>
       <td class="bet-countdown">${formatCountdown(b.resolvesAt)}</td>
       <td class="num ${estPayout >= b.stake ? "pos" : "neg"}">${fmt(estPayout)}</td>`;
     tr.addEventListener("click", () => openArticle(b.article));
@@ -859,7 +859,7 @@ function renderPredictionsPage() {
       </td>
       <td>${b.direction === "up" ? "▲ Up" : "▼ Down"}</td>
       <td class="num">${fmt(b.stake)}</td>
-      <td class="num">${fmt(b.startPrice)} → ${fmt(b.endPrice)}</td>
+      <td class="num">${fmt(b.startViews)} → ${fmt(b.endViews)}</td>
       <td class="num ${outcome === "even" ? "" : outcome === "up" ? "pos" : "neg"}">${fmt(b.payout)}</td>
       <td class="bet-outcome ${outcome}">${outcomeText}</td>`;
     tr.addEventListener("click", () => openArticle(b.article));
@@ -965,7 +965,7 @@ function renderDetOpenBets() {
   const mine = state.bets.open.filter((b) => b.article === d.article);
   ul.innerHTML = "";
   for (const b of mine) {
-    const winning = (b.direction === "up") === (b.currentPrice >= b.startPrice);
+    const winning = (b.direction === "up") === (b.currentViews >= b.startViews);
     const li = document.createElement("li");
     li.innerHTML = `
       <div class="mini-main">
@@ -973,8 +973,8 @@ function renderDetOpenBets() {
         <div class="mini-sub">${formatCountdown(b.resolvesAt)} · currently ${winning ? "winning" : "losing"}</div>
       </div>
       <div class="mini-right">
-        <div class="mini-price ${winning ? "pos" : "neg"}">${fmt(b.currentPrice)}</div>
-        <div class="mini-change">from ${fmt(b.startPrice)}</div>
+        <div class="mini-price ${winning ? "pos" : "neg"}">${fmt(b.currentViews)}</div>
+        <div class="mini-change">from ${fmt(b.startViews)}</div>
       </div>`;
     ul.appendChild(li);
   }
