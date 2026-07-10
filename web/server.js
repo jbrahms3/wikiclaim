@@ -67,7 +67,12 @@ async function verifyClerkToken(bearerToken) {
     // verifyToken reports invalid/expired/mismatched tokens as a normal
     // {errors} return value, not a thrown exception.
     if (errors) return { reason: "rejected", detail: errors[0]?.message || String(errors) };
-    if (!data?.sub) return { reason: "no-sub" };
+    if (!data?.sub) {
+      // This shouldn't be reachable - Clerk's own claim validation rejects a
+      // token with no `sub` as an error, not a success. Dump the actual shape
+      // so we can see what's really coming back instead of guessing further.
+      return { reason: "no-sub", detail: JSON.stringify(data) };
+    }
     return { clerkUserId: data.sub };
   } catch (err) {
     return { reason: "threw", detail: err?.message || String(err) };
