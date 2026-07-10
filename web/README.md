@@ -1,18 +1,21 @@
 # WikiClaim (web)
 
-A multiplayer game where you **buy Wikipedia articles at the price of their
-daily traffic** and **earn credits every day for every real visitor** those
-articles get. Prices and earnings both come from the live
+A multiplayer game where you **buy Wikipedia articles at the price of a year
+of their traffic** — like valuing a business at its annual revenue — and
+**earn credits every day for every real visitor** those articles get. Prices
+and earnings both come from the live
 [Wikimedia Pageviews API](https://wikimedia.org/api/rest_v1/#/Pageviews%20data).
 
-Everyone starts with **250 credits**. Buy pages you think are undervalued (or
+Everyone starts with **5,000 credits**. Buy pages you think are undervalued (or
 about to spike), collect their daily views as income, sell when you like, and
 climb the shared net-worth leaderboard.
 
 ## The rules
 
-- **Price of a page** = its average daily pageviews over the last 30 days
-  (human traffic only; bots excluded). Minimum price is 1.
+- **Price of a page** = its average daily pageviews over the last 30 days,
+  annualized (× 365) — a page averaging 10 views/day costs 3,650. Human
+  traffic only; bots excluded. Minimum price is 365 (the 1-view/day floor,
+  annualized).
 - **Buying** deducts the current price from your credits. You can own any
   number of pages you can afford, but only one position per page.
 - **Earning**: each real calendar day, every page you own pays you credits
@@ -70,7 +73,7 @@ not just the UI.
   users. Locally it's read from `web/.env` (see `.env.example`); on Railway,
   set it as a Variable instead (no `.env` file is deployed there).
 - **Accounts are provisioned just-in-time**: the first time a Clerk user is
-  seen, the server creates a matching internal record (250 starting credits)
+  seen, the server creates a matching internal record (5,000 starting credits)
   automatically — there's no separate "register" step in this app.
 - If `CLERK_SECRET_KEY` isn't set, the server logs a warning on boot and
   treats every request as signed out — sign-in and all transactions fail

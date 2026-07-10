@@ -9,17 +9,17 @@ This repo contains two things:
 
 | Part | What it is |
 | ---- | ---------- |
-| [**`web/`**](web) | A **multiplayer web game** — buy Wikipedia articles priced at their average daily views, earn credits every day for every visitor they get, sell, and climb a shared net-worth leaderboard. |
+| [**`web/`**](web) | A **multiplayer web game** — buy Wikipedia articles priced at a year of their average daily views, earn credits every day for every visitor they get, sell, and climb a shared net-worth leaderboard. |
 | root (extension) | The original **browser extension** — "claim" articles you visit and rack up points from their daily views. |
 
 ---
 
 ## The web game (`web/`)
 
-Buy articles at the price of their daily traffic, collect their views as daily
-income, and compete on net worth. Everyone starts with **250 credits**.
+Buy articles at the price of a year of their traffic, collect their views as daily
+income, and compete on net worth. Everyone starts with **5,000 credits**.
 
-- **Price** of a page = its average daily pageviews over the last 30 days (min 1).
+- **Price** of a page = its average daily pageviews over the last 30 days, annualized (× 365; min 365) — like valuing a business at a year of its revenue.
 - **Buying** deducts the current price. One position per page; buy as many pages
   as you can afford.
 - **Earning**: each real calendar day, every page you own pays you credits equal

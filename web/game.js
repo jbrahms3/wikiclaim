@@ -15,7 +15,12 @@ import {
   parseDate,
 } from "./wikimedia.js";
 
-const STARTING_CREDITS = 250;
+// Prices are now annualized (avgViews * 365, see wikimedia.js) - even the
+// cheapest real article found in testing (Nintendo_gamebooks, 7 views/day)
+// costs 2,555, and the absolute floor (1 view/day) is 365. 250 would leave a
+// new player unable to afford anything at all. 5,000 covers a couple of very
+// obscure articles - real progression is still required for anything popular.
+const STARTING_CREDITS = 5000;
 
 function fmtDate(d) {
   const p = (n) => String(n).padStart(2, "0");
@@ -103,8 +108,10 @@ export async function portfolio(userId) {
     } catch {
       /* treat as unpriced */
     }
-    const current = price ? price.avgViews : h.purchasePrice;
+    const current = price ? price.annualPrice : h.purchasePrice;
     holdingsValue += current;
+    // Today's earnings are a genuine daily figure (settlement pays daily
+    // views, not a slice of the annual price) - unaffected by annualization.
     todayEarnings += price ? price.latestViews ?? price.avgViews : 0;
     totalEarned += h.totalEarned || 0;
     items.push({
@@ -177,7 +184,7 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
       "Couldn't verify this article's traffic right now (Wikimedia's stats API returned no data). Try again in a few seconds."
     );
   }
-  const cost = price.avgViews;
+  const cost = price.annualPrice;
 
   // Atomic: debit only if the balance can cover it (no read-then-write race).
   const creditsLeft = await store.tryDebit(userId, cost);
@@ -242,7 +249,7 @@ export async function sellPage(userId, holdingId) {
       "Couldn't price this page right now (no data from Wikimedia). Try again in a few seconds."
     );
   }
-  const proceeds = price.avgViews;
+  const proceeds = price.annualPrice;
 
   // Remove first, then credit — so a double-click can't sell the same page twice.
   await store.deleteHolding(holdingId);
@@ -266,7 +273,7 @@ export async function leaderboard() {
     for (const h of holdings) {
       try {
         const price = await getPagePrice(h.project, h.article);
-        value += price.unpriced ? h.purchasePrice : price.avgViews;
+        value += price.unpriced ? h.purchasePrice : price.annualPrice;
       } catch {
         value += h.purchasePrice; // last verified price
       }
@@ -284,11 +291,15 @@ export async function leaderboard() {
 }
 
 /**
- * Predictions: a 24h directional bet on an article's price (its avgViews,
+ * Predictions: a 24h directional bet on an article's price (its annualPrice,
  * the same number shown everywhere as "price") rather than owning the page
  * itself. Stake is escrowed (debited) immediately; payout is settled lazily,
  * the same pattern as holdings - no cron, resolved whenever the bettor is
- * next active, past-due bets are just caught up on read.
+ * next active, past-due bets are just caught up on read. Note: since
+ * annualPrice is always avgViews * 365, a fixed multiple of avgViews, the %
+ * change (and therefore the payout) is identical either way - this is purely
+ * about which number is *displayed* as start/current/end price, for
+ * consistency with what "price" means everywhere else in the app.
  */
 const BET_DURATION_MS = 24 * 60 * 60 * 1000;
 const MIN_STAKE = 1;
@@ -328,7 +339,7 @@ export async function placeBet(userId, { project, article, displayTitle, directi
     displayTitle,
     direction,
     stake,
-    startPrice: price.avgViews,
+    startPrice: price.annualPrice,
     placedAt: now,
     resolvesAt: now + BET_DURATION_MS,
     status: "open",
@@ -354,7 +365,7 @@ async function resolveBetIfDue(bet) {
   let endPrice = bet.startPrice;
   try {
     const price = await getPagePrice(bet.project, bet.article, { force: true });
-    if (!price.unpriced) endPrice = price.avgViews;
+    if (!price.unpriced) endPrice = price.annualPrice;
   } catch {
     /* endPrice stays at startPrice -> break-even refund */
   }
@@ -404,7 +415,7 @@ export async function listBets(userId) {
       let currentPrice = b.startPrice;
       try {
         const p = await getPagePrice(b.project, b.article);
-        if (!p.unpriced) currentPrice = p.avgViews;
+        if (!p.unpriced) currentPrice = p.annualPrice;
       } catch {
         /* show start price as a fallback */
       }

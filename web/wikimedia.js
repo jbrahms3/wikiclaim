@@ -9,6 +9,11 @@ const PAGEVIEWS_BASE =
 const UA = "WikiClaim/1.0 (https://github.com/local/wikiclaim; game demo)";
 
 const PRICE_WINDOW_DAYS = 30;
+// The purchase price is annualized daily readership - like valuing a business
+// at a multiple of its yearly revenue. Everything else (latestViews, changePct,
+// spark, "Views (24h)" in the UI) stays a genuine daily figure; only the price
+// itself is dailyAvg * 365.
+const ANNUALIZATION_DAYS = 365;
 const PRICE_CACHE_MS = 6 * 60 * 60 * 1000; // re-price a page at most every 6h
 // Results that came back with no data at all get a much shorter TTL. Under
 // concurrent load, Wikimedia's pageviews API sometimes returns 404 (rather
@@ -133,8 +138,11 @@ export async function fetchDailyPageviews(project, article, start, end) {
 }
 
 /**
- * Current "market price" of an article = average daily views over the last
- * PRICE_WINDOW_DAYS available days. Cached for a few hours. Minimum price 1.
+ * Prices an article. avgViews (average daily views over the last
+ * PRICE_WINDOW_DAYS days, minimum 1) is the underlying data and the number
+ * shown everywhere as "views/day"; annualPrice (avgViews * 365) is the actual
+ * purchase/sale price - like valuing a business at its yearly revenue.
+ * Cached for a few hours.
  */
 // A cached entry with no real signal at all (every one of the last 7 days
 // literally 0, floored to the price minimum) is treated as suspect rather
@@ -142,6 +150,15 @@ export async function fetchDailyPageviews(project, article, start, end) {
 // signal here (always computed the same way, no fallback quirks).
 function looksEmpty(entry) {
   return entry.avgViews <= 1 && entry.spark && entry.spark.every((v) => v === 0);
+}
+
+// Both fields are derived fresh from avgViews every time, never persisted:
+// annualPrice is a pure multiple (avgViews is the single source of truth in
+// the DB), and unpriced depends on spark/avgViews so it must be recomputed
+// even for a cache hit (an all-zero window means "the API gave us nothing",
+// not "worth 1").
+function withDerived(entry) {
+  return { ...entry, unpriced: looksEmpty(entry), annualPrice: entry.avgViews * ANNUALIZATION_DAYS };
 }
 
 // Coalesce concurrent lookups for the same article into one upstream fetch —
@@ -154,9 +171,7 @@ export async function getPagePrice(project, article, { force = false } = {}) {
   const cached = await store.getPageCache(key);
   const ttl = cached && looksEmpty(cached) ? EMPTY_CACHE_MS : PRICE_CACHE_MS;
   if (!force && cached && Date.now() - cached.updatedAt < ttl) {
-    // unpriced is derived, never persisted: an all-zero window means "the API
-    // gave us nothing", which callers must treat as unknown - not "worth 1".
-    return { ...cached, unpriced: looksEmpty(cached) };
+    return withDerived(cached);
   }
 
   if (inflightPrices.has(key)) return inflightPrices.get(key);
@@ -201,7 +216,7 @@ async function fetchAndCachePrice(key, project, article) {
     updatedAt: Date.now(),
   };
   await store.setPageCache(entry);
-  return { ...entry, unpriced: looksEmpty(entry) };
+  return withDerived(entry);
 }
 
 /**
@@ -403,7 +418,7 @@ export async function getTrending(limit = 10) {
           article,
           title: article.replace(/_/g, " "),
           rank,
-          price: p.avgViews,
+          price: p.annualPrice,
           changePct: p.changePct,
           latestViews: p.latestViews,
           spark: p.spark || null,

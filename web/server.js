@@ -177,7 +177,7 @@ function pricePayload(p) {
     return { price: null, changePct: null, latestViews: null, spark: null, unpriced: true };
   }
   return {
-    price: p.avgViews,
+    price: p.annualPrice,
     changePct: p.changePct,
     latestViews: p.latestViews,
     spark: p.spark || null,
