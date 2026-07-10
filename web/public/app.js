@@ -235,7 +235,7 @@ async function enterGame() {
       window.api = api; // expose for manual re-runs in the console
       try {
         const diag = await api("/api/debug/auth");
-        console.log("[WikiMarket auth diagnostic]", diag);
+        console.log("[WikiMarket auth diagnostic] full report:", diag);
         const hint = {
           "no-token": "The browser isn't sending a Clerk token. getToken() likely returned null - check window.Clerk.session is non-null.",
           "no-secret-key": "The server has no CLERK_SECRET_KEY set. Add it in Railway -> your service -> Variables, then redeploy.",
@@ -243,7 +243,14 @@ async function enterGame() {
           "threw": "Clerk threw during verification - usually a malformed/incorrect CLERK_SECRET_KEY.",
           "no-sub": "Token verified but had no user id - unexpected; report this.",
         }[diag.reason];
-        if (hint) console.warn("[WikiMarket auth diagnostic] Likely cause:", hint);
+        // Everything in one line - reason, likely cause, and the raw payload -
+        // so copy-pasting just this one line to me is enough to diagnose it.
+        console.warn(
+          `[WikiMarket auth diagnostic] reason="${diag.reason}"` +
+            (hint ? ` likelyCause="${hint}"` : "") +
+            (diag.detail ? ` detail=${diag.detail}` : "") +
+            ` secretKeyConfigured=${diag.secretKeyConfigured} secretKeyPrefix=${diag.secretKeyPrefix} tokenLength=${diag.tokenLength}`
+        );
       } catch (e) {
         console.error("[WikiMarket auth diagnostic] failed to reach /api/debug/auth:", e);
       }
