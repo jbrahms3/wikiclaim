@@ -8,12 +8,17 @@ const PAGEVIEWS_BASE =
 // Wikimedia asks that REST clients send a descriptive User-Agent.
 const UA = "WikiClaim/1.0 (https://github.com/local/wikiclaim; game demo)";
 
-const PRICE_WINDOW_DAYS = 30;
-// The purchase price is annualized daily readership - like valuing a business
-// at a multiple of its yearly revenue. Everything else (latestViews, changePct,
-// spark, "Views (24h)" in the UI) stays a genuine daily figure; only the price
-// itself is dailyAvg * 365.
-const ANNUALIZATION_DAYS = 365;
+const PREMIUM_WINDOW_DAYS = 30;
+const YEAR_WINDOW_DAYS = 365;
+// The purchase price blends a full year's typical daily traffic with a
+// recency premium - like valuing a business at its normal yearly run-rate
+// plus a bonus for a strong last month. avgViews = daily average over the
+// last YEAR_WINDOW_DAYS days (the baseline "views/day" figure shown
+// everywhere); premium = raw view total over the last PREMIUM_WINDOW_DAYS
+// days (not averaged - a real recent-traffic bonus, not a daily rate).
+// annualPrice = avgViews + premium is the only number that's the actual
+// price. Everything else (latestViews, changePct, spark, "Views (24h)" in
+// the UI) stays a genuine daily figure from the same fetch.
 const PRICE_CACHE_MS = 6 * 60 * 60 * 1000; // re-price a page at most every 6h
 // Results that came back with no data at all get a much shorter TTL. Under
 // concurrent load, Wikimedia's pageviews API sometimes returns 404 (rather
@@ -138,10 +143,10 @@ export async function fetchDailyPageviews(project, article, start, end) {
 }
 
 /**
- * Prices an article. avgViews (average daily views over the last
- * PRICE_WINDOW_DAYS days, minimum 1) is the underlying data and the number
- * shown everywhere as "views/day"; annualPrice (avgViews * 365) is the actual
- * purchase/sale price - like valuing a business at its yearly revenue.
+ * Prices an article. avgViews (daily average over the last YEAR_WINDOW_DAYS
+ * days, minimum 1) is the baseline "views/day" figure; premium (raw view
+ * total over the last PREMIUM_WINDOW_DAYS days) is added on top as a recency
+ * bonus. annualPrice = avgViews + premium is the actual purchase/sale price.
  * Cached for a few hours.
  */
 // A cached entry with no real signal at all (every one of the last 7 days
@@ -152,13 +157,18 @@ function looksEmpty(entry) {
   return entry.avgViews <= 1 && entry.spark && entry.spark.every((v) => v === 0);
 }
 
-// Both fields are derived fresh from avgViews every time, never persisted:
-// annualPrice is a pure multiple (avgViews is the single source of truth in
-// the DB), and unpriced depends on spark/avgViews so it must be recomputed
+// avgViews and premium are both persisted - they come from different windows
+// of the same underlying fetch and can't be derived from each other.
+// annualPrice is the only field derived fresh on every read (never persisted
+// itself), and unpriced depends on spark/avgViews so it must be recomputed
 // even for a cache hit (an all-zero window means "the API gave us nothing",
 // not "worth 1").
 function withDerived(entry) {
-  return { ...entry, unpriced: looksEmpty(entry), annualPrice: entry.avgViews * ANNUALIZATION_DAYS };
+  return {
+    ...entry,
+    unpriced: looksEmpty(entry),
+    annualPrice: entry.avgViews + (entry.premium || 0),
+  };
 }
 
 // Coalesce concurrent lookups for the same article into one upstream fetch —
@@ -184,19 +194,29 @@ export async function getPagePrice(project, article, { force = false } = {}) {
 
 async function fetchAndCachePrice(key, project, article) {
   const end = latestAvailableDate();
-  const start = addDaysUTC(end, -(PRICE_WINDOW_DAYS - 1));
+  const start = addDaysUTC(end, -(YEAR_WINDOW_DAYS - 1));
   const views = await fetchDailyPageviews(project, article, start, end);
 
-  let sum = 0;
-  for (const v of views.values()) sum += v;
-  const avg = Math.max(1, Math.round(sum / PRICE_WINDOW_DAYS));
-  // Only fall back to the average when we have *some* data but happen to be
-  // missing just the most recent day (publishing lag) - not when the whole
-  // window came back empty, which should read as "0 views", not "avg views".
-  const latestViews = views.size > 0 ? views.get(formatYYYYMMDD(end)) ?? avg : 0;
-  // "Change" = today vs. the 30-day average it's priced at, like a stock's
-  // move relative to a moving average. Bounded away from #DIV/0 by the avg floor.
-  const changePct = ((latestViews - avg) / avg) * 100;
+  let yearSum = 0;
+  for (const v of views.values()) yearSum += v;
+  const avgViews = Math.max(1, Math.round(yearSum / YEAR_WINDOW_DAYS));
+
+  // Recency premium: a raw total (not a daily rate) over the last
+  // PREMIUM_WINDOW_DAYS days, added straight onto the yearly baseline.
+  let premium = 0;
+  for (let i = 0; i < PREMIUM_WINDOW_DAYS; i++) {
+    premium += views.get(formatYYYYMMDD(addDaysUTC(end, -i))) || 0;
+  }
+  const premiumAvg = premium / PREMIUM_WINDOW_DAYS;
+
+  // Only fall back to the recent average when we have *some* data but happen
+  // to be missing just the most recent day (publishing lag) - not when the
+  // whole window came back empty, which should read as "0 views", not "avg views".
+  const latestViews = views.size > 0 ? views.get(formatYYYYMMDD(end)) ?? Math.round(premiumAvg) : 0;
+  // "Change" = today vs. the last-30-days average, like a stock's move
+  // relative to a short moving average (not the full-year baseline the price
+  // is anchored to). Guarded against #DIV/0 when the last 30 days are all 0.
+  const changePct = premiumAvg > 0 ? ((latestViews - premiumAvg) / premiumAvg) * 100 : 0;
 
   // Last 7 available days, oldest first — free sparkline data from the same fetch.
   const spark = [];
@@ -208,11 +228,12 @@ async function fetchAndCachePrice(key, project, article) {
     key,
     project,
     article,
-    avgViews: avg,
+    avgViews,
+    premium,
     latestViews,
     changePct: Math.round(changePct * 10) / 10,
     spark,
-    windowDays: PRICE_WINDOW_DAYS,
+    windowDays: YEAR_WINDOW_DAYS,
     updatedAt: Date.now(),
   };
   await store.setPageCache(entry);

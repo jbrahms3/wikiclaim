@@ -15,11 +15,9 @@ import {
   parseDate,
 } from "./wikimedia.js";
 
-// Prices are now annualized (avgViews * 365, see wikimedia.js) - even the
-// cheapest real article found in testing (Nintendo_gamebooks, 7 views/day)
-// costs 2,555, and the absolute floor (1 view/day) is 365. 250 would leave a
-// new player unable to afford anything at all. 5,000 covers a couple of very
-// obscure articles - real progression is still required for anything popular.
+// Price = yearly daily-view average + a recency premium (last 30 days'
+// total views), see wikimedia.js. 5,000 comfortably covers obscure/niche
+// articles while leaving real progression required for popular ones.
 const STARTING_CREDITS = 5000;
 
 function fmtDate(d) {
@@ -295,11 +293,7 @@ export async function leaderboard() {
  * the same number shown everywhere as "price") rather than owning the page
  * itself. Stake is escrowed (debited) immediately; payout is settled lazily,
  * the same pattern as holdings - no cron, resolved whenever the bettor is
- * next active, past-due bets are just caught up on read. Note: since
- * annualPrice is always avgViews * 365, a fixed multiple of avgViews, the %
- * change (and therefore the payout) is identical either way - this is purely
- * about which number is *displayed* as start/current/end price, for
- * consistency with what "price" means everywhere else in the app.
+ * next active, past-due bets are just caught up on read.
  */
 const BET_DURATION_MS = 24 * 60 * 60 * 1000;
 const MIN_STAKE = 1;

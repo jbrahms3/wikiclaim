@@ -1,7 +1,8 @@
 # WikiClaim (web)
 
 A multiplayer game where you **buy Wikipedia articles at the price of a year
-of their traffic** — like valuing a business at its annual revenue — and
+of their traffic plus a bonus for recent buzz** — like valuing a business at
+its normal yearly run-rate plus a premium for a strong recent month — and
 **earn credits every day for every real visitor** those articles get. Prices
 and earnings both come from the live
 [Wikimedia Pageviews API](https://wikimedia.org/api/rest_v1/#/Pageviews%20data).
@@ -12,10 +13,10 @@ climb the shared net-worth leaderboard.
 
 ## The rules
 
-- **Price of a page** = its average daily pageviews over the last 30 days,
-  annualized (× 365) — a page averaging 10 views/day costs 3,650. Human
-  traffic only; bots excluded. Minimum price is 365 (the 1-view/day floor,
-  annualized).
+- **Price of a page** = its average daily pageviews over the last 365 days
+  (min 1), plus a premium equal to its raw view total over the last 30 days
+  — a page steady at 10 views/day costs roughly 10 + 300 = 310. Human traffic
+  only; bots excluded.
 - **Buying** deducts the current price from your credits. You can own any
   number of pages you can afford, but only one position per page.
 - **Earning**: each real calendar day, every page you own pays you credits

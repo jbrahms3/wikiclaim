@@ -87,6 +87,7 @@ const rowToCache = (r) => {
     project: r.project,
     article: r.article,
     avgViews: r.avg_views,
+    premium: r.premium,
     latestViews: r.latest_views,
     changePct: r.change_pct,
     spark,
@@ -164,6 +165,7 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS latest_views BIGINT;`);
       await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS change_pct DOUBLE PRECISION;`);
       await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS spark TEXT;`);
+      await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS premium BIGINT;`);
       await q(`
         CREATE TABLE IF NOT EXISTS watchlist (
           user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -304,20 +306,21 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     async setPageCache(entry) {
       await q(
         `INSERT INTO page_cache
-           (key, project, article, avg_views, latest_views, change_pct, spark, window_days, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           (key, project, article, avg_views, latest_views, change_pct, spark, window_days, updated_at, premium)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (key) DO UPDATE SET
            avg_views = EXCLUDED.avg_views,
            latest_views = EXCLUDED.latest_views,
            change_pct = EXCLUDED.change_pct,
            spark = EXCLUDED.spark,
            window_days = EXCLUDED.window_days,
-           updated_at = EXCLUDED.updated_at`,
+           updated_at = EXCLUDED.updated_at,
+           premium = EXCLUDED.premium`,
         [
           entry.key, entry.project, entry.article, entry.avgViews,
           entry.latestViews ?? null, entry.changePct ?? null,
           entry.spark ? JSON.stringify(entry.spark) : null,
-          entry.windowDays, entry.updatedAt,
+          entry.windowDays, entry.updatedAt, entry.premium ?? null,
         ]
       );
       return entry;
