@@ -39,17 +39,11 @@ a { color: var(--accent); }
 
 /* ---------- Brand ---------- */
 .brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  background: var(--accent);
-  color: #fff;
-  font-weight: 800;
-  font-size: 18px;
-  font-family: Georgia, "Times New Roman", serif;
+  background: #fff;
+  object-fit: cover;
   flex: 0 0 auto;
 }
 .brand { display: flex; align-items: center; gap: 12px; }
