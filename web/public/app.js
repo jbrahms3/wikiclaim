@@ -398,6 +398,7 @@ function parseHash() {
 function renderRoute() {
   state.route = parseHash();
   const { page } = state.route;
+  closeMobileNav();
 
   document.querySelectorAll(".nav-item").forEach((n) =>
     n.classList.toggle("active", n.dataset.route === page)
@@ -418,6 +419,23 @@ function renderRoute() {
 }
 
 window.addEventListener("hashchange", renderRoute);
+
+/* ================= mobile nav drawer ================= */
+
+function closeMobileNav() {
+  $("#sidebar").classList.remove("open");
+  $("#sidebar-backdrop").classList.remove("open");
+  $("#mobile-menu-btn").setAttribute("aria-expanded", "false");
+}
+function openMobileNav() {
+  $("#sidebar").classList.add("open");
+  $("#sidebar-backdrop").classList.add("open");
+  $("#mobile-menu-btn").setAttribute("aria-expanded", "true");
+}
+$("#mobile-menu-btn").addEventListener("click", () => {
+  $("#sidebar").classList.contains("open") ? closeMobileNav() : openMobileNav();
+});
+$("#sidebar-backdrop").addEventListener("click", closeMobileNav);
 
 /* ================= header search ================= */
 

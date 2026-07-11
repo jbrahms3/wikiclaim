@@ -183,7 +183,33 @@ a.side-card:hover { border-color: var(--accent); }
 .side-card-hint { font-size: 11.5px; color: var(--muted); }
 .logout { width: 100%; }
 
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
+
+/* Hamburger toggle for the off-canvas sidebar - hidden on desktop, shown
+   at the same breakpoint the sidebar goes off-canvas (see media query below). */
+.mobile-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.mobile-menu-btn svg { width: 20px; height: 20px; fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; }
+
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 24, 40, 0.45);
+  z-index: 40;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
 
 /* ---------- Header ---------- */
 .header {
@@ -514,6 +540,36 @@ img.thumb { border: 1px solid var(--border); }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
-  .sidebar { display: none; }
   .header-stats .hstat { display: none; }
+  .mobile-menu-btn { display: inline-flex; }
+  .header { padding: 12px 14px; gap: 10px; }
+  .pages { padding: 16px 14px 32px; }
+
+  /* Sidebar becomes an off-canvas drawer instead of just vanishing - it's
+     the only nav, so hiding it with nowhere to go would strand mobile users. */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-backdrop.open { display: block; opacity: 1; }
+
+  /* Tables scroll horizontally instead of clipping columns off-screen. */
+  .table-card { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+  .table { min-width: 560px; }
+
+  .points-hero { padding: 16px 18px; gap: 18px; }
+  .points-balance-value { font-size: 28px; }
+  .toast { left: 14px; right: 14px; transform: none; width: auto; }
+}
+
+@media (max-width: 480px) {
+  .search input { font-size: 13px; }
+  .detail-price-num { font-size: 22px; }
+  .chart-holder { height: 200px; }
 }

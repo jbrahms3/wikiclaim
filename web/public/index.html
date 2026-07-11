@@ -44,8 +44,11 @@
 
     <!-- ============ App shell ============ -->
     <section id="game-view" class="view shell" hidden>
+      <!-- Mobile-only backdrop behind the off-canvas sidebar -->
+      <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
       <!-- Left sidebar -->
-      <aside class="sidebar">
+      <aside class="sidebar" id="sidebar">
         <div class="brand side-brand">
           <span class="brand-mark">W</span>
           <div>
@@ -98,6 +101,9 @@
       <!-- Main column -->
       <div class="main">
         <header class="header">
+          <button id="mobile-menu-btn" class="mobile-menu-btn" aria-label="Open menu" aria-expanded="false">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
           <form id="search-form" class="search">
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
             <input id="search-input" placeholder='Search Wikipedia articles, e.g. "Black hole", "Minecraft", "Chess"' />
