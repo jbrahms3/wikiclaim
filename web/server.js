@@ -244,7 +244,6 @@ app.get(
 
 app.get(
   "/api/search",
-  requireAuth,
   wrap(async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (!q) return res.json({ results: [] });
@@ -300,10 +299,10 @@ app.get(
   })
 );
 
-// Everything a detail page needs for one article, in one call.
+// Everything a detail page needs for one article, in one call. Public - the
+// per-user fields (holding/watched) just come back null/false when signed out.
 app.get(
   "/api/article",
-  requireAuth,
   wrap(async (req, res) => {
     const article = String(req.query.article || "");
     if (!article) throw new Error("Missing article.");
@@ -342,10 +341,10 @@ app.get(
 );
 
 // Manual price re-check: force a fresh fetch past the cache. Used by the UI
-// when an article shows "no data" (transient Wikimedia API flakiness).
+// when an article shows "no data" (transient Wikimedia API flakiness). Public
+// - it busts a shared price cache, not any user-specific data or credits.
 app.post(
   "/api/reprice",
-  requireAuth,
   wrap(async (req, res) => {
     const article = String(req.body.article || "");
     if (!article) throw new Error("Missing article.");

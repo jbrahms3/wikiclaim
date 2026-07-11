@@ -70,15 +70,19 @@ With no `DATABASE_URL` set, the app stores everything in a local JSON file
 ## Authentication (Clerk)
 
 Sign-up/sign-in is handled entirely by [Clerk](https://clerk.com) — this app
-has no password storage of its own. **Signing in is required to buy, sell, or
-place a prediction**; every mutating route verifies the request server-side,
-not just the UI.
+has no password storage of its own. **Browsing requires no account at all** —
+the Market (both tabs), article detail pages, search, leaderboard, and
+activity feed are all public. Signing in is only prompted on demand, the
+moment you try to buy, sell, list/cancel/buy on the secondary market, place a
+prediction, or watch an article; every one of those routes also verifies the
+request server-side, not just the UI, so this isn't just a client-side gate.
 
 - **Frontend**: `public/index.html` loads Clerk via a CDN script tag (no
   bundler needed) using a publishable key — safe to be public, already
-  hardcoded there. It mounts Clerk's own sign-in widget into `#clerk-auth`.
-  `app.js` attaches the current Clerk session token as an `Authorization:
-  Bearer <token>` header on every API call.
+  hardcoded there. Sign-in is a Clerk modal (`Clerk.openSignIn()`) opened
+  on demand by `ensureSignedIn()` rather than a full-page gate. `app.js`
+  attaches the current Clerk session token as an `Authorization: Bearer
+  <token>` header on every API call (when signed in).
 - **Backend**: `server.js` verifies that Bearer token against Clerk
   (`@clerk/backend`'s `verifyToken`) on every request. This needs
   **`CLERK_SECRET_KEY`** set — get it from your Clerk dashboard's *API Keys*
@@ -161,8 +165,8 @@ entirely handled by Clerk's widget on the frontend.
 
 | Method | Route              | Purpose                                   |
 | ------ | ------------------ | ----------------------------------------- |
-| GET    | `/api/me`          | Portfolio + settle earnings; JIT-provisions the account on first call (auth) |
-| GET    | `/api/search?q=`   | Search articles, priced (auth)            |
+| GET    | `/api/me`          | Portfolio + settle earnings; JIT-provisions the account on first call; `{user: null}` when signed out |
+| GET    | `/api/search?q=`   | Search articles, priced (public)          |
 | POST   | `/api/buy`         | Buy a page (auth)                         |
 | POST   | `/api/sell`        | Sell a page (auth)                        |
 | GET    | `/api/leaderboard` | Net-worth ranking                         |
@@ -170,10 +174,10 @@ entirely handled by Clerk's widget on the frontend.
 | GET    | `/api/categories`  | Category indexes (baskets of articles) for the ticker |
 | GET    | `/api/history?article=&days=` | Daily view history for a chart (7-90 days) |
 | GET    | `/api/portfolio-history?days=` | Combined daily views across your holdings (auth) |
-| GET    | `/api/article?article=` | Detail bundle: price, meta, your position, watched (auth) |
+| GET    | `/api/article?article=` | Detail bundle: price, meta, ownership, your position/watched if signed in (public) |
 | GET    | `/api/watchlist`   | Your watchlist, priced (auth)             |
 | POST   | `/api/watchlist/toggle` | Watch/unwatch an article (auth)      |
-| POST   | `/api/reprice`     | Force a fresh price check for one article (auth) |
+| POST   | `/api/reprice`     | Force a fresh price check for one article (public - busts a shared cache, not user data) |
 | GET    | `/api/activity`    | Recent market events (claims, sells, joins, predictions) |
 | POST   | `/api/bet`         | Place a 24h up/down daily-views prediction (auth) |
 | GET    | `/api/bets`        | Your open (settles due ones first) + resolved predictions (auth) |

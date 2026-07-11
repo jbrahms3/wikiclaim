@@ -206,51 +206,43 @@ function waitForClerkScript() {
   });
 }
 
-// Genuinely-signed-out state: mount Clerk's sign-in widget. Guarded so we
-// NEVER mount it while a Clerk session exists - mounting SignIn when already
-// signed in makes Clerk redirect to "/", which reloads the page and, if the
-// backend can't verify us, loops forever.
-function showSignIn() {
-  $("#game-view").hidden = true;
-  $("#auth-view").hidden = false;
-  $("#auth-loading").hidden = true;
-  $("#auth-error").textContent = "";
-  $("#auth-signout").hidden = true;
-  const mount = $("#clerk-auth");
-  mount.hidden = false;
-  if (window.Clerk && !window.Clerk.user && mount && !mount.dataset.mounted) {
-    window.Clerk.mountSignIn(mount);
-    mount.dataset.mounted = "1";
-  }
+// Browsing never requires sign-in. These just reflect the current sign-in
+// state into the header/sidebar chrome and whichever page is showing -
+// nothing here blocks navigation or rendering.
+function renderAuthChrome() {
+  const signedIn = !!state.user;
+  $("#hdr-networth-stat").hidden = !signedIn;
+  $("#hdr-today-stat").hidden = !signedIn;
+  $("#hdr-profile").hidden = !signedIn;
+  $("#hdr-signin-btn").hidden = signedIn;
+  $("#sidebar-points-card").hidden = !signedIn;
+  $("#logout-btn").hidden = !signedIn;
+  $("#sidebar-signedout-card").hidden = signedIn;
+  $("#sidebar-signin-btn").hidden = signedIn;
 }
 
-// Clerk session exists but our backend couldn't verify it. Show an error with
-// a Sign-out escape hatch, and crucially do NOT mount SignIn (that would loop).
-function showVerifyError(message) {
-  $("#game-view").hidden = true;
-  $("#auth-view").hidden = false;
-  $("#auth-loading").hidden = true;
-  const mount = $("#clerk-auth");
-  if (mount.dataset.mounted && window.Clerk) {
-    window.Clerk.unmountSignIn(mount);
-    delete mount.dataset.mounted;
-  }
-  mount.hidden = true;
-  $("#auth-error").textContent = message;
-  $("#auth-signout").hidden = false;
+// Gate for any action that needs an account (buy, sell, list, predict,
+// watch...). Opens Clerk's sign-in modal on demand instead of a full-page
+// gate - browsing works with no account at all. Returns whether the caller
+// can proceed right now.
+function ensureSignedIn() {
+  if (state.user) return true;
+  window.Clerk?.openSignIn({});
+  return false;
 }
 
-let entering = false;
-async function enterGame() {
-  if (entering) return; // the Clerk listener can fire repeatedly; don't stack
-  entering = true;
+let signingIn = false;
+async function signInSucceeded() {
+  if (signingIn) return; // the Clerk listener can fire repeatedly; don't stack
+  signingIn = true;
   try {
-    const signedIn = await loadMe();
-    if (!signedIn) {
-      // Signed in with Clerk, but the backend didn't resolve a matching
-      // account (CLERK_SECRET_KEY missing/misconfigured server-side). Show the
-      // error state WITHOUT re-mounting SignIn.
-      showVerifyError("Signed in with Clerk, but the server couldn't verify it. See the browser console for the exact reason.");
+    const ok = await loadMe();
+    renderAuthChrome();
+    if (!ok) {
+      // Clerk session exists but the backend didn't resolve a matching
+      // account (CLERK_SECRET_KEY missing/misconfigured server-side).
+      // Browsing still works either way; only account actions would fail.
+      toast("Signed in, but the server couldn't verify it — see the console.", true);
       window.api = api; // expose for manual re-runs in the console
       try {
         const diag = await api("/api/debug/auth");
@@ -275,13 +267,10 @@ async function enterGame() {
       }
       return;
     }
-    $("#auth-view").hidden = true;
-    $("#game-view").hidden = false;
     loadSecondary();
-    if (!location.hash) location.hash = "#/overview";
     renderRoute();
   } finally {
-    entering = false;
+    signingIn = false;
   }
 }
 
@@ -290,25 +279,30 @@ async function initClerk() {
   await Clerk.load();
   // The listener fires immediately with current state, then again on every
   // resource change (including periodic token refreshes). Dedupe on the user
-  // id so we only react to actual sign-in/out transitions - otherwise a
-  // failing enterGame() would re-run on every tick and hammer the server.
+  // id so we only react to actual sign-in/out transitions.
   let lastUserId = "__init__";
   Clerk.addListener(({ user }) => {
     const id = user?.id ?? null;
     if (id === lastUserId) return;
     lastUserId = id;
     if (user) {
-      enterGame();
+      signInSucceeded();
     } else {
       state.user = null;
       state.me = null;
-      showSignIn();
+      renderAuthChrome();
+      renderRoute(); // re-render the current page in its signed-out form
     }
   });
 }
 
 $("#logout-btn").addEventListener("click", () => window.Clerk?.signOut());
-$("#auth-signout").addEventListener("click", () => window.Clerk?.signOut());
+$("#hdr-signin-btn").addEventListener("click", ensureSignedIn);
+$("#sidebar-signin-btn").addEventListener("click", ensureSignedIn);
+$("#ov-signin-btn").addEventListener("click", ensureSignedIn);
+$("#points-signin-btn").addEventListener("click", ensureSignedIn);
+$("#watchlist-signin-btn").addEventListener("click", ensureSignedIn);
+$("#predictions-signin-btn").addEventListener("click", ensureSignedIn);
 
 /* ================= data loading ================= */
 
@@ -332,11 +326,6 @@ function loadSecondary() {
     if (state.route.page === "overview") renderMovers();
     if (state.route.page === "market" && !state.route.q) renderRoute();
   }).catch(() => {});
-  api("/api/watchlist").then(({ items }) => {
-    state.watchlist = items;
-    if (state.route.page === "overview") renderOvWatchlist();
-    if (state.route.page === "watchlist") renderRoute();
-  }).catch(() => {});
   api("/api/activity").then(({ events }) => {
     state.activity = events;
     if (state.route.page === "overview") renderOvActivity();
@@ -346,12 +335,24 @@ function loadSecondary() {
     state.leaderboard = rows;
     if (state.route.page === "leaderboard") renderRoute();
   }).catch(() => {});
-  api("/api/bets").then(({ open, resolved }) => {
-    state.bets = { open, resolved };
-    if (state.route.page === "predictions") renderPredictionsPage();
-    if (state.route.page === "article") renderDetOpenBets();
-  }).catch(() => {});
   loadListings();
+
+  // Personal data only exists for a signed-in account.
+  if (state.user) {
+    api("/api/watchlist").then(({ items }) => {
+      state.watchlist = items;
+      if (state.route.page === "overview") renderOvWatchlist();
+      if (state.route.page === "watchlist") renderRoute();
+    }).catch(() => {});
+    api("/api/bets").then(({ open, resolved }) => {
+      state.bets = { open, resolved };
+      if (state.route.page === "predictions") renderPredictionsPage();
+      if (state.route.page === "article") renderDetOpenBets();
+    }).catch(() => {});
+  } else {
+    state.watchlist = [];
+    state.bets = { open: [], resolved: [] };
+  }
 }
 
 async function refreshAfterTrade() {
@@ -470,6 +471,14 @@ $("#search-form").addEventListener("submit", (e) => {
 
 function renderOverview() {
   const me = state.me;
+  $("#ov-signedout").hidden = !!me;
+  $("#ov-content").hidden = !me;
+
+  // These sections are public data - render regardless of sign-in.
+  renderMovers();
+  renderOvActivity();
+  renderOvWatchlist();
+
   if (!me) return;
 
   $("#ov-chart-value").textContent = fmt(me.todayEarnings);
@@ -494,9 +503,6 @@ function renderOverview() {
     .join("");
 
   renderHoldingsTable();
-  renderOvWatchlist();
-  renderMovers();
-  renderOvActivity();
   loadOverviewChart();
 }
 
@@ -603,6 +609,10 @@ function miniRow(item) {
 function renderOvWatchlist() {
   const ul = $("#ov-watchlist");
   ul.innerHTML = "";
+  if (!state.user) {
+    ul.innerHTML = `<li class="empty">Sign in to build a watchlist.</li>`;
+    return;
+  }
   if (!state.watchlist.length) {
     ul.innerHTML = `<li class="empty">Watch articles to track them here.</li>`;
     return;
@@ -707,6 +717,10 @@ function updateProgressBar(credits, goal) {
 }
 
 async function renderPointsPage() {
+  $("#points-signedout").hidden = !!state.user;
+  $("#points-content").hidden = !state.user;
+  if (!state.user) return;
+
   if (state.me) $("#pts-balance").textContent = fmt(state.me.user.credits);
 
   const holder = $("#pts-chart");
@@ -813,7 +827,9 @@ async function renderMarket() {
 
   for (const r of items) {
     const title = r.title || r.displayTitle;
-    const affordable = r.price != null && state.me.user.credits >= r.price;
+    // Signed out: don't disable on affordability (we don't know their
+    // balance) - clicking prompts sign-in instead.
+    const affordable = r.price != null && (!state.user || state.me.user.credits >= r.price);
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>
@@ -838,7 +854,7 @@ async function renderMarket() {
       btn.textContent = "Owned";
       btn.disabled = true;
     } else if (r.owned && r.listing) {
-      const listingAffordable = state.me.user.credits >= r.listing.askPrice;
+      const listingAffordable = !state.user || state.me.user.credits >= r.listing.askPrice;
       btn.textContent = listingAffordable ? `Buy for ${fmt(r.listing.askPrice)}` : "Too pricey";
       btn.disabled = !listingAffordable;
       btn.addEventListener("click", (e) => {
@@ -878,7 +894,7 @@ function renderSecondaryMarket() {
   tbody.innerHTML = "";
   for (const l of items) {
     const isMine = state.user && l.sellerId === state.user.id;
-    const affordable = state.me && state.me.user.credits >= l.askPrice;
+    const affordable = !state.user || state.me.user.credits >= l.askPrice;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>
@@ -928,6 +944,10 @@ function loadListings() {
 /* ================= watchlist page ================= */
 
 function renderWatchlistPage() {
+  $("#watchlist-signedout").hidden = !!state.user;
+  $("#watchlist-content").hidden = !state.user;
+  if (!state.user) return;
+
   const tbody = $("#watchlist-table tbody");
   const items = state.watchlist;
   $("#watchlist-empty").hidden = items.length > 0;
@@ -961,6 +981,10 @@ function renderWatchlistPage() {
 /* ================= predictions page ================= */
 
 function renderPredictionsPage() {
+  $("#predictions-signedout").hidden = !!state.user;
+  $("#predictions-content").hidden = !state.user;
+  if (!state.user) return;
+
   const open = state.bets.open;
   const resolved = state.bets.resolved;
 
@@ -1156,7 +1180,7 @@ function renderDetailActions() {
       listBtn.onclick = () => listHolding(d.holding.id, d.displayTitle, d.price ?? d.holding.purchasePrice);
     }
   } else if (d.owned && d.listing) {
-    const affordable = state.me.user.credits >= d.listing.askPrice;
+    const affordable = !state.user || state.me.user.credits >= d.listing.askPrice;
     actionBtn.textContent = affordable
       ? `Buy for ${fmt(d.listing.askPrice)} pts (resale)`
       : `Need ${fmt(d.listing.askPrice)} pts (resale)`;
@@ -1171,7 +1195,7 @@ function renderDetailActions() {
     actionBtn.textContent = "Re-check price";
     actionBtn.disabled = false;
     actionBtn.onclick = () => reprice(d.article, d.displayTitle, actionBtn);
-  } else if (state.me.user.credits >= d.price) {
+  } else if (!state.user || state.me.user.credits >= d.price) {
     actionBtn.textContent = `Claim for ${fmt(d.price)} pts`;
     actionBtn.disabled = false;
     actionBtn.onclick = () => buy({ article: d.article, title: d.displayTitle }, actionBtn);
@@ -1248,6 +1272,7 @@ $("#det-ranges").addEventListener("click", (e) => {
 /* ================= actions ================= */
 
 async function buy(r, btn) {
+  if (!ensureSignedIn()) return;
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Claiming…";
@@ -1274,6 +1299,7 @@ async function buy(r, btn) {
 }
 
 async function sell(holdingId, title) {
+  if (!ensureSignedIn()) return;
   try {
     const res = await api("/api/sell", {
       method: "POST",
@@ -1292,6 +1318,7 @@ async function sell(holdingId, title) {
 }
 
 async function listHolding(holdingId, title, currentMarketPrice) {
+  if (!ensureSignedIn()) return;
   const input = prompt(
     `List "${title}" for sale on the secondary market.\nCurrent market price: ${fmt(currentMarketPrice)} pts.\nEnter your asking price:`,
     String(currentMarketPrice)
@@ -1320,6 +1347,7 @@ async function listHolding(holdingId, title, currentMarketPrice) {
 }
 
 async function cancelListingAction(listingId, title) {
+  if (!ensureSignedIn()) return;
   try {
     await api(`/api/listings/${listingId}/cancel`, { method: "POST" });
     toast(`Cancelled the listing for "${title}".`);
@@ -1335,6 +1363,7 @@ async function cancelListingAction(listingId, title) {
 }
 
 async function buyListingAction(listingId, title, price) {
+  if (!ensureSignedIn()) return;
   try {
     const res = await api(`/api/listings/${listingId}/buy`, { method: "POST" });
     toast(`Bought "${title}" for ${fmt(res.price)} pts.`);
@@ -1415,6 +1444,7 @@ $("#predict-down").addEventListener("click", () => {
 $("#predict-stake").addEventListener("input", updatePredictSubmitState);
 
 $("#predict-submit").addEventListener("click", async () => {
+  if (!ensureSignedIn()) return;
   const d = state.detail;
   if (!d) return;
   const stake = Number($("#predict-stake").value);
@@ -1445,6 +1475,7 @@ $("#predict-submit").addEventListener("click", async () => {
 });
 
 async function toggleWatch(article, displayTitle) {
+  if (!ensureSignedIn()) return;
   try {
     const { watched } = await api("/api/watchlist/toggle", {
       method: "POST",
@@ -1466,7 +1497,15 @@ async function toggleWatch(article, displayTitle) {
 
 /* ================= boot ================= */
 
+// Browsing works immediately, with no dependency on Clerk - render the app
+// and load public data right away. If a Clerk session exists, initClerk()
+// picks it up asynchronously afterward and refreshes personal data/chrome.
+if (!location.hash) location.hash = "#/overview";
+renderAuthChrome();
+renderRoute();
+loadSecondary();
+
 initClerk().catch((err) => {
   console.error(err);
-  $("#auth-loading").textContent = "Couldn't load sign-in — please refresh the page.";
+  toast("Couldn't load sign-in — you can still browse.", true);
 });

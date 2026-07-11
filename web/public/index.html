@@ -19,32 +19,8 @@
 </head>
 <body>
   <div id="app">
-    <!-- ============ Auth ============ -->
-    <section id="auth-view" class="view">
-      <div class="auth-card">
-        <div class="brand">
-          <img class="brand-mark" src="wikipicks_logo.svg" alt="WikiMarket logo" />
-          <div>
-            <h1>WikiMarket</h1>
-            <div class="brand-sub">Article Portfolio</div>
-          </div>
-        </div>
-        <p class="tagline">
-          The market where encyclopedia articles are the assets. Claim
-          Wikipedia articles priced from a year of their typical readership
-          plus a bonus for recent buzz — like buying a business for its
-          run-rate revenue — and earn Wiki Points from every visitor. Start
-          with <strong>5,000 points</strong>.
-        </p>
-        <div id="clerk-auth"></div>
-        <p id="auth-loading" class="page-hint" style="text-align:center;">Loading sign-in…</p>
-        <p id="auth-error" class="error"></p>
-        <button id="auth-signout" class="btn-ghost" hidden style="width:100%;">Sign out and try again</button>
-      </div>
-    </section>
-
     <!-- ============ App shell ============ -->
-    <section id="game-view" class="view shell" hidden>
+    <section id="game-view" class="view shell">
       <!-- Mobile-only backdrop behind the off-canvas sidebar -->
       <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
@@ -90,12 +66,17 @@
         </nav>
 
         <div class="sidebar-footer">
-          <a class="side-card" href="#/points">
+          <a class="side-card" href="#/points" id="sidebar-points-card" hidden>
             <div class="side-card-label">Wiki Points</div>
             <div class="side-card-value" id="side-credits">0</div>
             <div class="side-card-hint">Spendable balance — view progress</div>
           </a>
-          <button id="logout-btn" class="btn-ghost logout">Log out</button>
+          <button id="logout-btn" class="btn-ghost logout" hidden>Log out</button>
+          <div class="side-card" id="sidebar-signedout-card">
+            <div class="side-card-label">Not signed in</div>
+            <div class="side-card-hint">Sign in to buy, sell, and predict</div>
+          </div>
+          <button id="sidebar-signin-btn" class="btn-primary logout">Sign In</button>
         </div>
       </aside>
 
@@ -110,18 +91,19 @@
             <input id="search-input" placeholder='Search Wikipedia articles, e.g. "Black hole", "Minecraft", "Chess"' />
           </form>
           <div class="header-stats">
-            <div class="hstat">
+            <div class="hstat" id="hdr-networth-stat" hidden>
               <span class="hstat-label">Portfolio Value</span>
               <span class="hstat-value" id="hdr-networth">0</span>
             </div>
-            <div class="hstat">
+            <div class="hstat" id="hdr-today-stat" hidden>
               <span class="hstat-label">Earnings (24h)</span>
               <span class="hstat-value pos" id="hdr-today">0</span>
             </div>
-            <div class="profile">
+            <div class="profile" id="hdr-profile" hidden>
               <span class="avatar" id="hdr-avatar"></span>
               <span class="profile-name" id="hdr-username"></span>
             </div>
+            <button id="hdr-signin-btn" class="btn-primary btn-sm">Sign In</button>
           </div>
         </header>
 
@@ -138,42 +120,59 @@
             <div class="page-grid">
               <div class="page-center">
                 <h1 class="page-title">Portfolio Overview</h1>
-                <div class="overview-top">
-                  <div class="card chart-card">
-                    <div class="chart-head">
-                      <div>
-                        <div class="chart-value" id="ov-chart-value">0</div>
-                        <div class="chart-caption">views/day across your articles</div>
-                      </div>
-                      <div class="range-tabs" id="ov-ranges">
-                        <button class="range-tab" data-days="7">1W</button>
-                        <button class="range-tab active" data-days="30">1M</button>
-                        <button class="range-tab" data-days="90">3M</button>
-                      </div>
-                    </div>
-                    <div class="chart-holder" id="ov-chart">
-                      <div class="chart-empty">Buy your first article to see your earnings chart.</div>
-                    </div>
-                  </div>
-                  <div class="metric-stack" id="metric-stack"></div>
+
+                <div class="card signin-hero" id="ov-signedout" hidden>
+                  <img class="brand-mark lg" src="wikipicks_logo.svg" alt="WikiMarket logo" />
+                  <h2>Welcome to WikiMarket</h2>
+                  <p class="page-hint">
+                    The market where encyclopedia articles are the assets. Claim
+                    Wikipedia articles priced from a year of their typical readership
+                    plus a bonus for recent buzz — like buying a business for its
+                    run-rate revenue — and earn Wiki Points from every visitor. Start
+                    with <strong>5,000 points</strong>. Browse freely — sign in only
+                    when you're ready to trade.
+                  </p>
+                  <button class="btn-primary" id="ov-signin-btn">Sign In to Start Trading</button>
                 </div>
 
-                <div class="card table-card">
-                  <div class="card-head">
-                    <h2>Your Articles</h2>
+                <div id="ov-content" hidden>
+                  <div class="overview-top">
+                    <div class="card chart-card">
+                      <div class="chart-head">
+                        <div>
+                          <div class="chart-value" id="ov-chart-value">0</div>
+                          <div class="chart-caption">views/day across your articles</div>
+                        </div>
+                        <div class="range-tabs" id="ov-ranges">
+                          <button class="range-tab" data-days="7">1W</button>
+                          <button class="range-tab active" data-days="30">1M</button>
+                          <button class="range-tab" data-days="90">3M</button>
+                        </div>
+                      </div>
+                      <div class="chart-holder" id="ov-chart">
+                        <div class="chart-empty">Buy your first article to see your earnings chart.</div>
+                      </div>
+                    </div>
+                    <div class="metric-stack" id="metric-stack"></div>
                   </div>
-                  <table class="table" id="holdings-table">
-                    <thead>
-                      <tr>
-                        <th>Article</th><th>Cost</th><th>Price</th><th>Views (24h)</th>
-                        <th>Earned</th><th>Change</th><th>7D</th><th></th>
-                      </tr>
-                    </thead>
-                    <tbody></tbody>
-                  </table>
-                  <p class="empty" id="holdings-empty" hidden>
-                    You don't own any articles yet — find one in the <a href="#/market">Market</a>.
-                  </p>
+
+                  <div class="card table-card">
+                    <div class="card-head">
+                      <h2>Your Articles</h2>
+                    </div>
+                    <table class="table" id="holdings-table">
+                      <thead>
+                        <tr>
+                          <th>Article</th><th>Cost</th><th>Price</th><th>Views (24h)</th>
+                          <th>Earned</th><th>Change</th><th>7D</th><th></th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                    <p class="empty" id="holdings-empty" hidden>
+                      You don't own any articles yet — find one in the <a href="#/market">Market</a>.
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -203,46 +202,53 @@
             <h1 class="page-title">Your Points</h1>
             <p class="page-hint">Your Wiki Points balance, where it came from, and your progress toward the reward.</p>
 
-            <div class="card points-hero">
-              <div class="points-balance">
-                <div class="side-card-label">Current Balance</div>
-                <div class="points-balance-value" id="pts-balance">0</div>
-              </div>
-              <div class="progress-wrap">
-                <div class="progress-labels">
-                  <span id="pts-progress-current">0 pts</span>
-                  <span class="progress-goal">🎁 1,000,000 pts = $100 gift card</span>
-                </div>
-                <div class="progress-bar">
-                  <div class="progress-fill" id="pts-progress-fill" style="width:0%"></div>
-                </div>
-                <div class="progress-footer" id="pts-progress-footer">0% of the way there</div>
-              </div>
+            <div class="card signin-prompt" id="points-signedout" hidden>
+              <p>Sign in to track your points, earnings history, and progress toward the reward.</p>
+              <button class="btn-primary" id="points-signin-btn">Sign In</button>
             </div>
 
-            <div class="card chart-card">
-              <div class="chart-head">
-                <div>
-                  <div class="chart-value" id="pts-chart-value">0</div>
-                  <div class="chart-caption">points earned per day, recent history</div>
+            <div id="points-content" hidden>
+              <div class="card points-hero">
+                <div class="points-balance">
+                  <div class="side-card-label">Current Balance</div>
+                  <div class="points-balance-value" id="pts-balance">0</div>
+                </div>
+                <div class="progress-wrap">
+                  <div class="progress-labels">
+                    <span id="pts-progress-current">0 pts</span>
+                    <span class="progress-goal">🎁 1,000,000 pts = $100 gift card</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div class="progress-fill" id="pts-progress-fill" style="width:0%"></div>
+                  </div>
+                  <div class="progress-footer" id="pts-progress-footer">0% of the way there</div>
                 </div>
               </div>
-              <div class="chart-holder" id="pts-chart">
-                <div class="chart-empty">No earnings yet — buy an article to start earning.</div>
-              </div>
-            </div>
 
-            <div class="card table-card">
-              <div class="card-head"><h2>Earnings History</h2></div>
-              <table class="table" id="points-history-table">
-                <thead>
-                  <tr><th>Article</th><th>Source</th><th>When</th><th>Points</th></tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-              <p class="empty" id="points-history-empty" hidden>
-                No earnings yet — buy an article in the <a href="#/market">Market</a> and check back tomorrow.
-              </p>
+              <div class="card chart-card">
+                <div class="chart-head">
+                  <div>
+                    <div class="chart-value" id="pts-chart-value">0</div>
+                    <div class="chart-caption">points earned per day, recent history</div>
+                  </div>
+                </div>
+                <div class="chart-holder" id="pts-chart">
+                  <div class="chart-empty">No earnings yet — buy an article to start earning.</div>
+                </div>
+              </div>
+
+              <div class="card table-card">
+                <div class="card-head"><h2>Earnings History</h2></div>
+                <table class="table" id="points-history-table">
+                  <thead>
+                    <tr><th>Article</th><th>Source</th><th>When</th><th>Points</th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+                <p class="empty" id="points-history-empty" hidden>
+                  No earnings yet — buy an article in the <a href="#/market">Market</a> and check back tomorrow.
+                </p>
+              </div>
             </div>
           </section>
 
@@ -286,7 +292,11 @@
           <section class="page" id="page-watchlist" hidden>
             <h1 class="page-title">Watchlist</h1>
             <p class="page-hint">Articles you're keeping an eye on.</p>
-            <div class="card table-card">
+            <div class="card signin-prompt" id="watchlist-signedout" hidden>
+              <p>Sign in to build a watchlist.</p>
+              <button class="btn-primary" id="watchlist-signin-btn">Sign In</button>
+            </div>
+            <div class="card table-card" id="watchlist-content" hidden>
               <table class="table" id="watchlist-table">
                 <thead>
                   <tr><th>Article</th><th>Price</th><th>Change</th><th>7D</th><th></th></tr>
@@ -307,7 +317,11 @@
               from now. Payout scales with how right (or wrong) you were — open any
               article and use the <strong>Predict Daily Views</strong> card to place one.
             </p>
-            <div class="stack">
+            <div class="card signin-prompt" id="predictions-signedout" hidden>
+              <p>Sign in to place predictions and see your results.</p>
+              <button class="btn-primary" id="predictions-signin-btn">Sign In</button>
+            </div>
+            <div class="stack" id="predictions-content" hidden>
               <div class="card table-card">
                 <div class="card-head"><h2>Open Predictions</h2></div>
                 <table class="table" id="bets-open-table">

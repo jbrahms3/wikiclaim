@@ -99,29 +99,23 @@ input::placeholder { color: #9aa0a6; }
 .error { color: var(--red); font-size: 13px; min-height: 16px; margin: 4px 0 0; }
 .empty { color: var(--muted); font-size: 13px; padding: 14px 16px; }
 
-/* ---------- Auth ---------- */
-#auth-view {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 24px;
-  background:
-    radial-gradient(600px 300px at 85% -5%, var(--accent-soft), transparent),
-    var(--bg);
+/* ---------- Sign-in prompts (browsing is public; these gate credit actions) ---------- */
+.signin-prompt {
+  padding: 22px 20px;
+  text-align: center;
 }
-.auth-card {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 30px;
-  width: 100%;
-  max-width: 410px;
-  box-shadow: var(--shadow);
+.signin-prompt p { color: var(--muted); font-size: 13.5px; margin: 0 0 14px; }
+
+.signin-hero {
+  padding: 40px 30px;
+  text-align: center;
+  max-width: 560px;
+  margin: 14px auto 0;
 }
-.tagline { color: var(--muted); line-height: 1.6; font-size: 13.5px; }
-.tagline strong { color: var(--accent); }
-#clerk-auth { margin-top: 18px; }
+.signin-hero .brand-mark.lg { width: 56px; height: 56px; border-radius: 14px; margin: 0 auto 14px; }
+.signin-hero h2 { margin: 0 0 10px; font-size: 22px; letter-spacing: -0.02em; }
+.signin-hero .page-hint { line-height: 1.6; margin: 0 0 20px; }
+.signin-hero .page-hint strong { color: var(--accent); }
 
 /* ---------- Shell ---------- */
 .shell { display: flex; min-height: 100vh; }
