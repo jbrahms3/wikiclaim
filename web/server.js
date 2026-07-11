@@ -10,6 +10,7 @@ import dotenv from "dotenv";
 dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), ".env") });
 
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { createClerkClient, verifyToken } from "@clerk/backend";
 
 import { store, uid, initStore } from "./store.js";
@@ -52,8 +53,38 @@ if (!CLERK_SECRET_KEY) {
 const clerkClient = CLERK_SECRET_KEY ? createClerkClient({ secretKey: CLERK_SECRET_KEY }) : null;
 
 const app = express();
+// Railway sits exactly one reverse proxy in front of this process - trust
+// that one hop's X-Forwarded-For so req.ip (and therefore rate limiting) is
+// the real client, not Railway's edge. Trusting further/unlimited hops would
+// let a client spoof its own IP via the header and dodge the limits below.
+app.set("trust proxy", 1);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
+
+// A single client (or script) hammering the API can't get more Wikimedia
+// traffic through than the existing concurrency cap in wikimedia.js allows
+// (see withPageviewsLimit), but nothing stopped them from queuing unlimited
+// work on *our* server - this is about protecting our own process, not
+// Wikimedia's rate limit specifically. General ceiling on all API traffic,
+// plus a tighter one below for the routes that always do a live, uncached
+// Wikimedia fetch (the ones actually worth abusing).
+app.use(
+  "/api",
+  rateLimit({
+    windowMs: 5 * 60 * 1000,
+    limit: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please slow down." },
+  })
+);
+const forcedFetchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests - try again in a minute." },
+});
 
 // --- Clerk auth middleware ---
 // The frontend sends the Clerk session token as a Bearer header (see api()
@@ -151,13 +182,18 @@ const wrap = (fn) => (req, res) =>
 
 // Diagnostic endpoint - reports exactly why auth did or didn't succeed,
 // without leaking the token or secret. Visit /api/debug/auth in the browser
-// while signed in to see what's actually happening end-to-end.
+// while signed in to see what's actually happening end-to-end. The one
+// real use case is a signed-in user whose Clerk session the backend can't
+// verify, so it's only useful (and only responds) when a bearer token was
+// actually sent - a blind, tokenless probe gets a 404, not a peek at the
+// server's auth-configuration state.
 app.get(
   "/api/debug/auth",
   wrap(async (req, res) => {
     const auth = req.headers.authorization || "";
     const hasBearer = auth.startsWith("Bearer ");
-    const bearerToken = hasBearer ? auth.slice(7) : null;
+    if (!hasBearer) return res.status(404).end();
+    const bearerToken = auth.slice(7);
     const result = await verifyClerkToken(bearerToken);
     res.json({
       // What the browser sent us:
@@ -345,6 +381,7 @@ app.get(
 // - it busts a shared price cache, not any user-specific data or credits.
 app.post(
   "/api/reprice",
+  forcedFetchLimiter,
   wrap(async (req, res) => {
     const article = String(req.body.article || "");
     if (!article) throw new Error("Missing article.");
@@ -406,6 +443,7 @@ app.get(
 app.post(
   "/api/buy",
   requireAuth,
+  forcedFetchLimiter,
   wrap(async (req, res) => {
     const article = String(req.body.article || "");
     const displayTitle = String(req.body.displayTitle || article.replace(/_/g, " "));
@@ -423,6 +461,7 @@ app.post(
 app.post(
   "/api/sell",
   requireAuth,
+  forcedFetchLimiter,
   wrap(async (req, res) => {
     const result = await sellPage(req.userId, String(req.body.holdingId || ""));
     res.json({ ...result, portfolio: await portfolio(req.userId) });
@@ -469,6 +508,7 @@ app.post(
 app.post(
   "/api/bet",
   requireAuth,
+  forcedFetchLimiter,
   wrap(async (req, res) => {
     const article = String(req.body.article || "");
     const displayTitle = String(req.body.displayTitle || article.replace(/_/g, " "));

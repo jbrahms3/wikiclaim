@@ -261,8 +261,26 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         );
       `);
       await q(`CREATE INDEX IF NOT EXISTS listings_article_idx ON listings (project, article);`);
-      // Exclusive ownership needs "does anyone own this article" lookups.
+      // Exclusive ownership needs "does anyone own this article" lookups,
+      // and - the actual enforcement - a real uniqueness guarantee so two
+      // concurrent buys of the same unowned article can't both succeed
+      // (application-level check-then-act isn't atomic; this is). Best
+      // effort: an existing deploy with legacy duplicate ownership (from
+      // before exclusivity existed) would fail to create this index, so we
+      // don't let that crash startup - it just means that specific deploy
+      // stays unprotected against the race until its old duplicates are
+      // cleaned up, same as before this fix.
       await q(`CREATE INDEX IF NOT EXISTS holdings_article_idx ON holdings (project, article);`);
+      try {
+        await q(
+          `CREATE UNIQUE INDEX IF NOT EXISTS holdings_article_unique_idx ON holdings (project, article);`
+        );
+      } catch (err) {
+        console.warn(
+          "Could not create holdings_article_unique_idx (likely pre-existing duplicate ownership rows) - the buy-race guard falls back to application-level checks only:",
+          err.message
+        );
+      }
     },
 
     // --- users ---
@@ -348,6 +366,29 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         ]
       );
       return h;
+    },
+    // Relies on holdings_article_unique_idx: the INSERT itself is the atomic
+    // check, unlike a separate SELECT-then-INSERT which two concurrent
+    // callers could both pass. Returns null (instead of throwing) on a
+    // uniqueness conflict, so the caller can treat "someone beat me to it"
+    // as an ordinary outcome rather than an unexpected error.
+    async createHoldingIfUnowned(h) {
+      try {
+        await q(
+          `INSERT INTO holdings
+             (id, user_id, project, article, display_title, lang, key,
+              purchase_price, purchased_date, last_settled_date, total_earned)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [
+            h.id, h.userId, h.project, h.article, h.displayTitle, h.lang, h.key,
+            h.purchasePrice, h.purchasedDate, h.lastSettledDate, h.totalEarned || 0,
+          ]
+        );
+        return h;
+      } catch (err) {
+        if (err.code === "23505") return null; // unique_violation
+        throw err;
+      }
     },
     async applySettlement(id, expectedLast, newLast, earnedDelta) {
       const { rowCount } = await q(

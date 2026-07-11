@@ -136,6 +136,20 @@ export function createJsonStore() {
       persist();
       return h;
     },
+    // Atomic check-and-create: no other code can run between the find and
+    // the write within a single synchronous call, so this is race-proof
+    // even though the caller (buyPage/buyListing) awaits Wikimedia/other
+    // store calls before reaching here. Returns null if someone already
+    // owns this article, without creating anything.
+    async createHoldingIfUnowned(h) {
+      const conflict = Object.values(db.holdings).find(
+        (x) => x.project === h.project && x.article === h.article
+      );
+      if (conflict) return null;
+      db.holdings[h.id] = { ...h };
+      persist();
+      return h;
+    },
     // Compare-and-set settlement: only apply if lastSettledDate is unchanged,
     // so two concurrent settlements can't double-credit. Returns true if applied.
     async applySettlement(id, expectedLast, newLast, earnedDelta) {

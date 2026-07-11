@@ -192,7 +192,10 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
   }
   // Ownership is exclusive: once anyone owns an article, it's off the
   // primary market - the only way to get it is to buy their listing on the
-  // secondary market (if they've made one).
+  // secondary market (if they've made one). This early check is just a fast
+  // path (skips a Wikimedia fetch + debit for the obvious case) - the real
+  // guarantee against two concurrent buyers both winning is
+  // createHoldingIfUnowned below, which is atomic.
   const existingOwner = await store.findAnyHolding(project, article);
   if (existingOwner) {
     const listing = await store.getListing(existingOwner.id);
@@ -237,7 +240,13 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
     lastSettledDate: today,
     totalEarned: 0,
   };
-  await store.createHolding(holding);
+  const created = await store.createHoldingIfUnowned(holding);
+  if (!created) {
+    // Lost the race to a concurrent buyer between the check above and here -
+    // refund immediately rather than leave the debit stranded.
+    await store.addCredits(userId, cost);
+    throw new Error("This article was just claimed by someone else. Your credits have been refunded.");
+  }
   await logEvent(userId, "claim", { article, displayTitle, amount: cost });
   return { holding, cost, creditsLeft };
 }
@@ -288,7 +297,10 @@ export async function sellPage(userId, holdingId) {
   if (!holding || holding.userId !== userId) {
     throw new Error("You don't own that page.");
   }
-  const price = await getPagePrice(holding.project, holding.article);
+  // Force a live check, same as buying - selling off a stale cached price
+  // (up to 6h old) could pay out more or less than the article is really
+  // worth right now if its traffic moved since the cache was last refreshed.
+  const price = await getPagePrice(holding.project, holding.article, { force: true });
   if (price.unpriced) {
     throw new Error(
       "Couldn't price this page right now (no data from Wikimedia). Try again in a few seconds."
@@ -422,7 +434,18 @@ export async function buyListing(userId, listingId) {
     lastSettledDate: today,
     totalEarned: 0,
   };
-  await store.createHolding(newHolding);
+  const created = await store.createHoldingIfUnowned(newHolding);
+  if (!created) {
+    // A vanishingly rare edge case: a third party's own primary-market
+    // purchase raced into the instant between deleteHolding and here and
+    // won. The buyer already paid nothing beyond what's about to be
+    // refunded (the seller hasn't been paid yet either, since that happens
+    // after this point) - refund the buyer rather than leave them charged
+    // for nothing.
+    await store.addCredits(userId, claimed.askPrice);
+    console.error(`buyListing: lost the holding race for ${holding.key} after claiming listing ${listingId} - refunded buyer ${userId}`);
+    throw new Error("This article was just claimed by someone else. Your credits have been refunded.");
+  }
 
   // Peer-to-peer: pay the seller directly, not "the market".
   await store.addCredits(claimed.sellerId, claimed.askPrice);
