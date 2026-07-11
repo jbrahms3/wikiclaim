@@ -17,8 +17,11 @@ climb the shared net-worth leaderboard.
   (min 1), plus a premium equal to its raw view total over the last 30 days
   — a page steady at 10 views/day costs roughly 10 + 300 = 310. Human traffic
   only; bots excluded.
-- **Buying** deducts the current price from your credits. You can own any
-  number of pages you can afford, but only one position per page.
+- **Buying** deducts the current price from your credits. Ownership is
+  **exclusive** — once a page is owned, it's off the primary market for
+  everyone else; the only way to get it from another player is to buy their
+  **secondary-market listing**, if they've made one, at whatever price
+  they set (not the computed price).
 - **Earning**: each real calendar day, every page you own pays you credits
   equal to that day's view count. You start earning the day *after* you buy.
 - **Settlement is automatic and lazy.** There's no cron job — whenever you
@@ -27,9 +30,14 @@ climb the shared net-worth leaderboard.
   data with about a 1-day lag, so today's earnings show up tomorrow. A page
   owned for N days earns exactly N days of real traffic, and it works even if
   the server was offline.
-- **Selling** returns the page's *current* price to your credits. Prices move
-  as real-world traffic changes, so a page can be worth more or less than you
-  paid.
+- **Selling** returns the page's *current* computed price to your credits
+  instantly. Prices move as real-world traffic changes, so a page can be
+  worth more or less than you paid.
+- **Secondary market**: list an owned page at any price you choose instead
+  of selling instantly. Unlike buying (credits sink) or instant-selling
+  (credits are printed), a resale is a genuine peer-to-peer trade — the
+  buyer's payment goes straight to you. The buyer becomes the new owner and
+  starts earning fresh from the day they buy.
 - **Net worth** = credits + current value of all your pages. The leaderboard
   ranks everyone by net worth.
 - **Predictions**: instead of owning a page, stake credits on whether its
@@ -169,6 +177,10 @@ entirely handled by Clerk's widget on the frontend.
 | GET    | `/api/activity`    | Recent market events (claims, sells, joins, predictions) |
 | POST   | `/api/bet`         | Place a 24h up/down daily-views prediction (auth) |
 | GET    | `/api/bets`        | Your open (settles due ones first) + resolved predictions (auth) |
+| GET    | `/api/listings`    | Active secondary-market listings, with the current computed price for comparison |
+| POST   | `/api/listings`    | List an owned page for resale at a chosen price (auth) |
+| POST   | `/api/listings/:id/cancel` | Cancel your listing (auth)         |
+| POST   | `/api/listings/:id/buy`    | Buy a listing - peer-to-peer, ownership transfers (auth) |
 
 The UI is **WikiMarket** — a light-themed, Robinhood-style trading dashboard:
 left nav sidebar, header with global search and a category-index ticker

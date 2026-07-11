@@ -18,6 +18,7 @@ const EMPTY = {
   watchlist: {}, // "userId::project::article" -> { userId, project, article, displayTitle, addedAt }
   activity: [], // newest last; capped
   bets: {}, // id -> 24h directional price prediction, see game.js placeBet
+  listings: {}, // id (== holding id) -> secondary market listing, see game.js listForSale
 };
 
 // Records are flat objects; return shallow copies from reads so callers can't
@@ -118,6 +119,15 @@ export function createJsonStore() {
         ) || null
       );
     },
+    async findAnyHolding(project, article) {
+      return (
+        copy(
+          Object.values(db.holdings).find(
+            (h) => h.project === project && h.article === article
+          )
+        ) || null
+      );
+    },
     async getHolding(id) {
       return copy(db.holdings[id]) || null;
     },
@@ -207,6 +217,26 @@ export function createJsonStore() {
       Object.assign(b, updates, { status: "resolved" });
       persist();
       return true;
+    },
+
+    // --- listings (secondary market) ---
+    async createListing(listing) {
+      db.listings[listing.id] = { ...listing };
+      persist();
+      return listing;
+    },
+    async getListing(id) {
+      return copy(db.listings[id]) || null;
+    },
+    async allActiveListings() {
+      return Object.values(db.listings).map(copy);
+    },
+    async claimListing(id) {
+      const l = db.listings[id];
+      if (!l) return null;
+      delete db.listings[id];
+      persist();
+      return copy(l);
     },
   };
 }

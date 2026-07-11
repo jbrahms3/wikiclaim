@@ -23,14 +23,19 @@ income, and compete on net worth. Everyone starts with **5,000 credits**.
   (min 1), plus a premium equal to its raw view total over the last 30 days
   — like valuing a business at its normal yearly run-rate plus a bonus for a
   strong recent month.
-- **Buying** deducts the current price. One position per page; buy as many pages
-  as you can afford.
+- **Buying** deducts the current price. Ownership is exclusive — once
+  someone owns a page, it's off the primary market; the only way to get it
+  is to buy it from them on the **secondary market**, at whatever price
+  they choose to list it for.
 - **Earning**: each real calendar day, every page you own pays you credits equal
   to that day's view count. Settlement is automatic and lazy — loading your
   dashboard credits every page for each day published since it was last settled,
   so a page owned N days earns exactly N days of real traffic. Wikimedia lags
   ~1 day, so today's views pay out tomorrow.
-- **Selling** returns the page's current price; prices drift with real traffic.
+- **Selling** returns the page's current price instantly; prices drift with
+  real traffic. Listing on the secondary market instead is a direct,
+  peer-to-peer trade — the buyer's payment goes straight to you, not "the
+  market" — so it can sell for more or less than the instant-sell price.
 - **Net worth** = credits + current value of your pages; the leaderboard ranks
   everyone by it.
 

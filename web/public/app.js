@@ -11,6 +11,7 @@ const state = {
   activity: [],
   leaderboard: [],
   bets: { open: [], resolved: [] },
+  listings: [],
   predictDirection: null,
   detail: null,
   route: { page: "overview" },
@@ -349,6 +350,7 @@ function loadSecondary() {
     if (state.route.page === "predictions") renderPredictionsPage();
     if (state.route.page === "article") renderDetOpenBets();
   }).catch(() => {});
+  loadListings();
 }
 
 async function refreshAfterTrade() {
@@ -522,11 +524,26 @@ function renderHoldingsTable() {
       <td class="num pos">+${fmt(h.totalEarned)}</td>
       <td>${badgeHtml(h.changePct, h.pendingLatest)}</td>
       <td>${sparkSvg(h.spark, h.changePct)}</td>
-      <td><button class="btn-ghost btn-sm">Sell</button></td>`;
-    tr.querySelector("button").addEventListener("click", (e) => {
-      e.stopPropagation();
-      sell(h.id, h.displayTitle);
-    });
+      <td class="holding-actions"></td>`;
+    const actionsTd = tr.querySelector(".holding-actions");
+    if (h.listing) {
+      actionsTd.innerHTML = `<span class="listed-tag">Listed ${fmt(h.listing.askPrice)}</span><button class="btn-ghost btn-sm">Cancel</button>`;
+      actionsTd.querySelector("button").addEventListener("click", (e) => {
+        e.stopPropagation();
+        cancelListingAction(h.id, h.displayTitle);
+      });
+    } else {
+      actionsTd.innerHTML = `<button class="btn-ghost btn-sm">Sell</button><button class="btn-ghost btn-sm">List</button>`;
+      const [sellBtn, listBtn] = actionsTd.querySelectorAll("button");
+      sellBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        sell(h.id, h.displayTitle);
+      });
+      listBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        listHolding(h.id, h.displayTitle, h.currentPrice);
+      });
+    }
     tr.addEventListener("click", () => openArticle(h.article));
     tbody.appendChild(tr);
   }
@@ -635,6 +652,8 @@ function feedItemHtml(ev) {
   } else if (ev.type === "bet-resolved") {
     dot = ev.amount > 0 ? "" : "sell";
     text = `${user}'s prediction on <b>${title}</b> paid out ${fmt(ev.amount)} pts`;
+  } else if (ev.type === "resale") {
+    text = `${user} bought <b>${title}</b> on the secondary market for ${fmt(ev.amount)} pts`;
   } else {
     text = `${user} did something`;
   }
@@ -738,6 +757,8 @@ async function renderPointsPage() {
 /* ================= market ================= */
 
 async function renderMarket() {
+  renderSecondaryMarket(); // independent of the primary table's load state below
+
   const q = state.route.q || "";
   $("#search-input").value = q;
   $("#market-list-title").textContent = q ? `Results for "${q}"` : "Trending Articles";
@@ -769,10 +790,8 @@ async function renderMarket() {
     return;
   }
 
-  const owned = new Set((state.me?.holdings || []).map((h) => h.article));
   for (const r of items) {
     const title = r.title || r.displayTitle;
-    const isOwned = owned.has(r.article);
     const affordable = r.price != null && state.me.user.credits >= r.price;
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -791,8 +810,22 @@ async function renderMarket() {
       <td>${sparkSvg(r.spark, r.changePct)}</td>
       <td><button class="btn-primary btn-sm"></button></td>`;
     const btn = tr.querySelector("button");
-    if (isOwned) {
+    // Ownership is exclusive - "Claim" only makes sense for genuinely
+    // unowned articles. Owned-and-listed routes to buying the listing
+    // instead; owned-and-unlisted just isn't available right now.
+    if (r.ownedByMe) {
       btn.textContent = "Owned";
+      btn.disabled = true;
+    } else if (r.owned && r.listing) {
+      const listingAffordable = state.me.user.credits >= r.listing.askPrice;
+      btn.textContent = listingAffordable ? `Buy for ${fmt(r.listing.askPrice)}` : "Too pricey";
+      btn.disabled = !listingAffordable;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        buyListingAction(r.listing.id, title, r.listing.askPrice);
+      });
+    } else if (r.owned) {
+      btn.textContent = "Not for sale";
       btn.disabled = true;
     } else if (r.price == null) {
       // Pricing data didn't come back (transient Wikimedia flakiness) —
@@ -814,6 +847,61 @@ async function renderMarket() {
     tr.addEventListener("click", () => openArticle(r.article));
     tbody.appendChild(tr);
   }
+}
+
+function renderSecondaryMarket() {
+  const tbody = $("#secondary-market-table tbody");
+  const items = state.listings;
+  $("#secondary-market-empty").hidden = items.length > 0;
+  $("#secondary-market-table").hidden = items.length === 0;
+  tbody.innerHTML = "";
+  for (const l of items) {
+    const isMine = state.user && l.sellerId === state.user.id;
+    const affordable = state.me && state.me.user.credits >= l.askPrice;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>
+        <div class="cell-article">
+          ${thumbHtml(l)}
+          <div>
+            <div class="cell-title">${escapeHtml(l.displayTitle)}</div>
+            <div class="cell-sub">${escapeHtml(l.description || "")}</div>
+          </div>
+        </div>
+      </td>
+      <td>${escapeHtml(l.sellerUsername)}</td>
+      <td class="num">${fmt(l.askPrice)}</td>
+      <td class="num">${l.marketPrice == null ? "—" : fmt(l.marketPrice)}</td>
+      <td><button class="btn-sm"></button></td>`;
+    const btn = tr.querySelector("button");
+    if (isMine) {
+      btn.className = "btn-ghost btn-sm";
+      btn.textContent = "Cancel Listing";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        cancelListingAction(l.id, l.displayTitle);
+      });
+    } else {
+      btn.className = "btn-primary btn-sm";
+      btn.textContent = affordable ? `Buy for ${fmt(l.askPrice)}` : "Too pricey";
+      btn.disabled = !affordable;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        buyListingAction(l.id, l.displayTitle, l.askPrice);
+      });
+    }
+    tr.addEventListener("click", () => openArticle(l.article));
+    tbody.appendChild(tr);
+  }
+}
+
+function loadListings() {
+  api("/api/listings")
+    .then(({ listings }) => {
+      state.listings = listings;
+      if (state.route.page === "market") renderSecondaryMarket();
+    })
+    .catch(() => {});
 }
 
 /* ================= watchlist page ================= */
@@ -1025,17 +1113,43 @@ function renderDetailActions() {
   const d = state.detail;
   if (!d) return;
   const actionBtn = $("#det-action");
+  const listBtn = $("#det-list-btn");
   const watchBtn = $("#det-watch");
+  listBtn.hidden = true;
 
-  if (d.price == null) {
-    // No pricing data right now — can't buy or sell without it.
+  if (d.holding) {
+    // Ownership is exclusive, but instant "Sell" and listing on the
+    // secondary market are independent options for an owner either way.
+    actionBtn.textContent = d.price == null
+      ? `Sell for ${fmt(d.holding.purchasePrice)} pts (last known price)`
+      : `Sell for ${fmt(d.price)} pts`;
+    actionBtn.disabled = false;
+    actionBtn.onclick = () => sell(d.holding.id, d.displayTitle);
+
+    listBtn.hidden = false;
+    if (d.listing) {
+      listBtn.textContent = `Cancel Listing (asked ${fmt(d.listing.askPrice)})`;
+      listBtn.onclick = () => cancelListingAction(d.listing.id, d.displayTitle);
+    } else {
+      listBtn.textContent = "List for Sale";
+      listBtn.onclick = () => listHolding(d.holding.id, d.displayTitle, d.price ?? d.holding.purchasePrice);
+    }
+  } else if (d.owned && d.listing) {
+    const affordable = state.me.user.credits >= d.listing.askPrice;
+    actionBtn.textContent = affordable
+      ? `Buy for ${fmt(d.listing.askPrice)} pts (resale)`
+      : `Need ${fmt(d.listing.askPrice)} pts (resale)`;
+    actionBtn.disabled = !affordable;
+    actionBtn.onclick = () => buyListingAction(d.listing.id, d.displayTitle, d.listing.askPrice);
+  } else if (d.owned) {
+    actionBtn.textContent = "Owned — not for sale";
+    actionBtn.disabled = true;
+    actionBtn.onclick = null;
+  } else if (d.price == null) {
+    // No pricing data right now — can't buy without it.
     actionBtn.textContent = "Re-check price";
     actionBtn.disabled = false;
     actionBtn.onclick = () => reprice(d.article, d.displayTitle, actionBtn);
-  } else if (d.holding) {
-    actionBtn.textContent = `Sell for ${fmt(d.price)} pts`;
-    actionBtn.disabled = false;
-    actionBtn.onclick = () => sell(d.holding.id, d.displayTitle);
   } else if (state.me.user.credits >= d.price) {
     actionBtn.textContent = `Claim for ${fmt(d.price)} pts`;
     actionBtn.disabled = false;
@@ -1057,7 +1171,11 @@ function renderDetailStats() {
     ["Market price", d.price == null ? "—" : `${fmt(d.price)} pts`],
     ["Views (last day)", d.latestViews == null ? "—" : fmt(d.latestViews)],
     ["vs 30-day avg", d.pendingLatest ? resultsInText() : d.changePct == null ? "—" : `${d.changePct >= 0 ? "+" : ""}${d.changePct}%`],
-    ["Status", d.holding ? "In your portfolio" : "Unowned"],
+    ["Status", d.holding
+      ? "In your portfolio"
+      : d.owned
+      ? (d.listing ? `Owned by another player — listed for ${fmt(d.listing.askPrice)} pts` : "Owned by another player")
+      : "Unowned"],
   ];
   if (d.holding) {
     rows.push(["Claimed", formatShortDate(d.holding.purchasedDate)]);
@@ -1143,6 +1261,64 @@ async function sell(holdingId, title) {
     toast(`Sold "${title}" for ${fmt(res.proceeds)} pts.`);
     await refreshAfterTrade();
     if (state.route.page === "article" && state.detail) {
+      renderArticlePage(state.detail.article);
+    } else {
+      renderRoute();
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function listHolding(holdingId, title, currentMarketPrice) {
+  const input = prompt(
+    `List "${title}" for sale on the secondary market.\nCurrent market price: ${fmt(currentMarketPrice)} pts.\nEnter your asking price:`,
+    String(currentMarketPrice)
+  );
+  if (input == null) return; // cancelled
+  const askPrice = Number(input);
+  if (!Number.isFinite(askPrice) || askPrice < 1) {
+    toast("Enter a valid asking price.", true);
+    return;
+  }
+  try {
+    const res = await api("/api/listings", {
+      method: "POST",
+      body: JSON.stringify({ holdingId, askPrice }),
+    });
+    toast(`Listed "${title}" for ${fmt(res.listing.askPrice)} pts.`);
+    await refreshAfterTrade();
+    if (state.route.page === "article" && state.detail) {
+      renderArticlePage(state.detail.article);
+    } else {
+      renderRoute();
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function cancelListingAction(listingId, title) {
+  try {
+    await api(`/api/listings/${listingId}/cancel`, { method: "POST" });
+    toast(`Cancelled the listing for "${title}".`);
+    await refreshAfterTrade();
+    if (state.route.page === "article" && state.detail) {
+      renderArticlePage(state.detail.article);
+    } else {
+      renderRoute();
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function buyListingAction(listingId, title, price) {
+  try {
+    const res = await api(`/api/listings/${listingId}/buy`, { method: "POST" });
+    toast(`Bought "${title}" for ${fmt(res.price)} pts.`);
+    await refreshAfterTrade();
+    if (state.route.page === "article" && state.detail?.article) {
       renderArticlePage(state.detail.article);
     } else {
       renderRoute();

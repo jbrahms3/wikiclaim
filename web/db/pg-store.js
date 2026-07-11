@@ -91,6 +91,20 @@ const rowToBet = (r) =>
       }
     : null;
 
+const rowToListing = (r) =>
+  r
+    ? {
+        id: r.id,
+        sellerId: r.seller_id,
+        project: r.project,
+        article: r.article,
+        displayTitle: r.display_title,
+        lang: r.lang,
+        askPrice: r.ask_price,
+        listedAt: r.listed_at,
+      }
+    : null;
+
 const rowToCache = (r) => {
   if (!r) return null;
   let spark = null;
@@ -231,6 +245,24 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         );
       `);
       await q(`CREATE INDEX IF NOT EXISTS bets_user_idx ON bets (user_id, status);`);
+      // Secondary market: a listing's id is its holding's id (a holding can
+      // only be listed once at a time), so listing/re-listing is a natural
+      // upsert and buying/cancelling is a single atomic delete-and-return.
+      await q(`
+        CREATE TABLE IF NOT EXISTS listings (
+          id TEXT PRIMARY KEY,
+          seller_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          project TEXT NOT NULL,
+          article TEXT NOT NULL,
+          display_title TEXT NOT NULL,
+          lang TEXT NOT NULL,
+          ask_price BIGINT NOT NULL,
+          listed_at BIGINT NOT NULL
+        );
+      `);
+      await q(`CREATE INDEX IF NOT EXISTS listings_article_idx ON listings (project, article);`);
+      // Exclusive ownership needs "does anyone own this article" lookups.
+      await q(`CREATE INDEX IF NOT EXISTS holdings_article_idx ON holdings (project, article);`);
     },
 
     // --- users ---
@@ -289,6 +321,14 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       const { rows } = await q(
         `SELECT * FROM holdings WHERE user_id = $1 AND project = $2 AND article = $3`,
         [userId, project, article]
+      );
+      return rowToHolding(rows[0]);
+    },
+    // Exclusive ownership: is this article owned by anyone at all (any user)?
+    async findAnyHolding(project, article) {
+      const { rows } = await q(
+        `SELECT * FROM holdings WHERE project = $1 AND article = $2 LIMIT 1`,
+        [project, article]
       );
       return rowToHolding(rows[0]);
     },
@@ -444,6 +484,38 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         [id, updates.endViews, updates.payout, updates.resolvedAt]
       );
       return rowCount > 0;
+    },
+
+    // --- listings (secondary market) ---
+    // A listing's id is its holding's id, so (re-)listing is a natural upsert.
+    async createListing(listing) {
+      await q(
+        `INSERT INTO listings
+           (id, seller_id, project, article, display_title, lang, ask_price, listed_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (id) DO UPDATE SET
+           ask_price = EXCLUDED.ask_price,
+           listed_at = EXCLUDED.listed_at`,
+        [
+          listing.id, listing.sellerId, listing.project, listing.article,
+          listing.displayTitle, listing.lang, listing.askPrice, listing.listedAt,
+        ]
+      );
+      return listing;
+    },
+    async getListing(id) {
+      const { rows } = await q(`SELECT * FROM listings WHERE id = $1`, [id]);
+      return rowToListing(rows[0]);
+    },
+    async allActiveListings() {
+      const { rows } = await q(`SELECT * FROM listings ORDER BY listed_at DESC`);
+      return rows.map(rowToListing);
+    },
+    // Atomic delete-and-return - used for both buying and cancelling, so a
+    // concurrent double-buy (or buy-vs-cancel race) can only succeed once.
+    async claimListing(id) {
+      const { rows } = await q(`DELETE FROM listings WHERE id = $1 RETURNING *`, [id]);
+      return rowToListing(rows[0]);
     },
   };
 }

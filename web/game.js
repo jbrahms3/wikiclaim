@@ -102,6 +102,9 @@ export async function portfolio(userId) {
   await settleUser(userId);
   const user = await store.getUser(userId);
   const holdings = await store.holdingsForUser(userId);
+  // A listing's id is its holding's id, so this naturally only matches
+  // holdings this user owns - no need to filter by seller separately.
+  const listingById = new Map((await store.allActiveListings()).map((l) => [l.id, l]));
 
   const items = [];
   let holdingsValue = 0;
@@ -139,6 +142,7 @@ export async function portfolio(userId) {
       unpriced: !price,
       totalEarned: h.totalEarned || 0,
       purchasedDate: h.purchasedDate,
+      listing: listingById.has(h.id) ? { askPrice: listingById.get(h.id).askPrice } : null,
     });
   }
   items.sort((a, b) => b.currentPrice - a.currentPrice);
@@ -185,6 +189,18 @@ export function publicUser(u) {
 export async function buyPage(userId, { project, article, displayTitle, lang }) {
   if (await store.findHolding(userId, project, article)) {
     throw new Error("You already own this page.");
+  }
+  // Ownership is exclusive: once anyone owns an article, it's off the
+  // primary market - the only way to get it is to buy their listing on the
+  // secondary market (if they've made one).
+  const existingOwner = await store.findAnyHolding(project, article);
+  if (existingOwner) {
+    const listing = await store.getListing(existingOwner.id);
+    throw new Error(
+      listing
+        ? `This article is owned by another player - buy it on the secondary market for ${listing.askPrice} pts instead.`
+        : "This article is already owned by another player and isn't listed for sale."
+    );
   }
   // Always re-verify against live data at purchase time; if Wikimedia gives
   // us nothing back, refuse to transact rather than sell at a bogus price.
@@ -282,6 +298,10 @@ export async function sellPage(userId, holdingId) {
 
   // Remove first, then credit — so a double-click can't sell the same page twice.
   await store.deleteHolding(holdingId);
+  // Clean up any active secondary-market listing for this holding, if
+  // present - an instant sell bypasses it, and a listing pointing at a
+  // holding that no longer exists would be a dangling, unbuyable ghost.
+  await store.claimListing(holdingId);
   const creditsLeft = await store.addCredits(userId, proceeds);
   await logEvent(userId, "sell", {
     article: holding.article,
@@ -290,6 +310,129 @@ export async function sellPage(userId, holdingId) {
   });
 
   return { proceeds, creditsLeft };
+}
+
+/**
+ * Secondary market: since ownership is exclusive (one owner per article at a
+ * time, see buyPage), once someone owns an article the only way anyone else
+ * gets it is to buy it from them. An owner can list their holding at any
+ * price they choose; unlike the primary market (buying sinks credits, the
+ * instant "Sell" prints them) a resale is a genuine peer-to-peer transfer -
+ * the buyer's payment goes directly to the seller, creating or destroying no
+ * points. A listing's id is always its holding's id (one listing per holding).
+ */
+const MIN_ASK_PRICE = 1;
+
+export async function listForSale(userId, holdingId, askPrice) {
+  askPrice = Math.round(Number(askPrice));
+  if (!Number.isFinite(askPrice) || askPrice < MIN_ASK_PRICE) {
+    throw new Error(`Minimum asking price is ${MIN_ASK_PRICE} point.`);
+  }
+  const holding = await store.getHolding(holdingId);
+  if (!holding || holding.userId !== userId) {
+    throw new Error("You don't own that page.");
+  }
+  const listing = {
+    id: holding.id,
+    sellerId: userId,
+    project: holding.project,
+    article: holding.article,
+    displayTitle: holding.displayTitle,
+    lang: holding.lang,
+    askPrice,
+    listedAt: Date.now(),
+  };
+  await store.createListing(listing);
+  return listing;
+}
+
+export async function cancelListing(userId, listingId) {
+  const listing = await store.getListing(listingId);
+  if (!listing || listing.sellerId !== userId) {
+    throw new Error("You don't have an active listing for that.");
+  }
+  await store.claimListing(listingId);
+  return { cancelled: true };
+}
+
+/** All active secondary-market listings, each with the current computed
+ * market price attached for comparison (buyers pay the ask price, not this). */
+export async function browseListings() {
+  const listings = await store.allActiveListings();
+  return Promise.all(
+    listings.map(async (l) => {
+      let marketPrice = null;
+      try {
+        const p = await getPagePrice(l.project, l.article);
+        if (!p.unpriced) marketPrice = p.annualPrice;
+      } catch {
+        /* comparison price unavailable - the listing itself is still valid */
+      }
+      const seller = await store.getUser(l.sellerId);
+      return { ...l, marketPrice, sellerUsername: seller ? seller.username : "someone" };
+    })
+  );
+}
+
+/** Buy a listing. Throws Error with a user-facing message on failure. */
+export async function buyListing(userId, listingId) {
+  const listing = await store.getListing(listingId);
+  if (!listing) throw new Error("This listing is no longer active.");
+  if (listing.sellerId === userId) throw new Error("You can't buy your own listing.");
+  if (await store.findHolding(userId, listing.project, listing.article)) {
+    throw new Error("You already own this article.");
+  }
+
+  // Atomic delete-and-return - a concurrent double-buy can only win once.
+  const claimed = await store.claimListing(listingId);
+  if (!claimed) throw new Error("This listing was just bought by someone else.");
+
+  // The listing's id is the holding's id - confirm it's still the same
+  // holding/seller before taking the buyer's money (defensive; shouldn't
+  // diverge in practice, but a stale listing pointing nowhere shouldn't
+  // charge anyone).
+  const holding = await store.getHolding(listingId);
+  if (!holding || holding.userId !== claimed.sellerId) {
+    throw new Error("This listing is no longer valid. Try again.");
+  }
+
+  const creditsLeft = await store.tryDebit(userId, claimed.askPrice);
+  if (creditsLeft === null) {
+    await store.createListing(claimed); // put it back - the buyer couldn't actually pay
+    const user = await store.getUser(userId);
+    throw new Error(
+      `Not enough credits: costs ${claimed.askPrice}, you have ${user ? user.credits : 0}.`
+    );
+  }
+
+  // Transfer ownership: delete the seller's holding, create a fresh one for
+  // the buyer - a new owner starts earning fresh, same as any purchase.
+  await store.deleteHolding(holding.id);
+  const today = fmtDate(latestAvailableDate());
+  const newHolding = {
+    id: uid(),
+    userId,
+    project: holding.project,
+    article: holding.article,
+    displayTitle: holding.displayTitle,
+    lang: holding.lang,
+    key: holding.key,
+    purchasePrice: claimed.askPrice,
+    purchasedDate: today,
+    lastSettledDate: today,
+    totalEarned: 0,
+  };
+  await store.createHolding(newHolding);
+
+  // Peer-to-peer: pay the seller directly, not "the market".
+  await store.addCredits(claimed.sellerId, claimed.askPrice);
+  await logEvent(userId, "resale", {
+    article: holding.article,
+    displayTitle: holding.displayTitle,
+    amount: claimed.askPrice,
+  });
+
+  return { holding: newHolding, price: claimed.askPrice, creditsLeft };
 }
 
 /** Leaderboard by net worth (credits + current value of all holdings). */

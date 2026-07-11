@@ -25,6 +25,10 @@ import {
   placeBet,
   listBets,
   pointsSummary,
+  listForSale,
+  cancelListing,
+  browseListings,
+  buyListing,
 } from "./game.js";
 import {
   searchArticles,
@@ -203,6 +207,25 @@ async function attachMeta(items) {
   }));
 }
 
+// Decorate a list of items (each with .article) with exclusive-ownership
+// status, so the UI can show "Claim" only for genuinely unowned articles and
+// route to the secondary-market listing (if any) otherwise.
+async function attachOwnership(items, userId) {
+  return Promise.all(
+    items.map(async (i) => {
+      const owner = await store.findAnyHolding("en.wikipedia", i.article);
+      if (!owner) return { ...i, owned: false, ownedByMe: false, listing: null };
+      const listing = await store.getListing(owner.id);
+      return {
+        ...i,
+        owned: true,
+        ownedByMe: owner.userId === userId,
+        listing: listing ? { id: listing.id, askPrice: listing.askPrice } : null,
+      };
+    })
+  );
+}
+
 // --- game routes ---
 app.get(
   "/api/me",
@@ -237,14 +260,16 @@ app.get(
         }
       })
     );
-    res.json({ results: await attachMeta(priced) });
+    res.json({ results: await attachOwnership(await attachMeta(priced), req.userId) });
   })
 );
 
 app.get(
   "/api/trending",
   wrap(async (req, res) => {
-    res.json({ items: await attachMeta(await getTrending(20)) });
+    res.json({
+      items: await attachOwnership(await attachMeta(await getTrending(20)), req.userId),
+    });
   })
 );
 
@@ -285,12 +310,14 @@ app.get(
     const project = "en.wikipedia";
 
     const price = await getPagePrice(project, article);
-    const [metaMap, holding, watched] = await Promise.all([
+    const [metaMap, holding, watched, anyOwner] = await Promise.all([
       getPageMeta([article]),
       store.findHolding(req.userId, project, article),
       store.isWatched(req.userId, project, article),
+      store.findAnyHolding(project, article),
     ]);
     const meta = metaMap.get(article) || {};
+    const listing = anyOwner ? await store.getListing(anyOwner.id) : null;
 
     res.json({
       article,
@@ -300,6 +327,8 @@ app.get(
       description: meta.description ?? null,
       ...pricePayload(price),
       watched,
+      owned: !!anyOwner,
+      listing: listing ? { id: listing.id, askPrice: listing.askPrice } : null,
       holding: holding
         ? {
             id: holding.id,
@@ -340,7 +369,7 @@ app.get(
         }
       })
     );
-    res.json({ items: await attachMeta(priced) });
+    res.json({ items: await attachOwnership(await attachMeta(priced), req.userId) });
   })
 );
 
@@ -397,6 +426,43 @@ app.post(
   requireAuth,
   wrap(async (req, res) => {
     const result = await sellPage(req.userId, String(req.body.holdingId || ""));
+    res.json({ ...result, portfolio: await portfolio(req.userId) });
+  })
+);
+
+// --- secondary market (peer-to-peer resale of exclusively-owned articles) ---
+app.get(
+  "/api/listings",
+  wrap(async (req, res) => {
+    res.json({ listings: await attachMeta(await browseListings()) });
+  })
+);
+
+app.post(
+  "/api/listings",
+  requireAuth,
+  wrap(async (req, res) => {
+    const holdingId = String(req.body.holdingId || "");
+    if (!holdingId) throw new Error("Missing holdingId.");
+    const listing = await listForSale(req.userId, holdingId, req.body.askPrice);
+    res.json({ listing, portfolio: await portfolio(req.userId) });
+  })
+);
+
+app.post(
+  "/api/listings/:id/cancel",
+  requireAuth,
+  wrap(async (req, res) => {
+    const result = await cancelListing(req.userId, req.params.id);
+    res.json({ ...result, portfolio: await portfolio(req.userId) });
+  })
+);
+
+app.post(
+  "/api/listings/:id/buy",
+  requireAuth,
+  wrap(async (req, res) => {
+    const result = await buyListing(req.userId, req.params.id);
     res.json({ ...result, portfolio: await portfolio(req.userId) });
   })
 );

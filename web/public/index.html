@@ -259,6 +259,21 @@
               </table>
               <p class="empty" id="market-empty" hidden>No articles found.</p>
             </div>
+
+            <div class="card table-card">
+              <div class="card-head"><h2>Secondary Market</h2></div>
+              <p class="page-hint predict-hint">
+                Once someone owns an article it's off the primary market — this is
+                where owners resell them, at whatever price they choose.
+              </p>
+              <table class="table" id="secondary-market-table">
+                <thead>
+                  <tr><th>Article</th><th>Seller</th><th>Asking Price</th><th>Market Price</th><th></th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+              <p class="empty" id="secondary-market-empty" hidden>No articles listed for resale right now.</p>
+            </div>
           </section>
 
           <!-- Watchlist -->
@@ -354,6 +369,7 @@
               </div>
               <div class="detail-actions">
                 <button class="btn-primary" id="det-action">—</button>
+                <button class="btn-ghost" id="det-list-btn" hidden>List for Sale</button>
                 <button class="btn-ghost" id="det-watch">Watch</button>
                 <a class="btn-ghost" id="det-wiki" target="_blank" rel="noopener">Read on Wikipedia</a>
               </div>
