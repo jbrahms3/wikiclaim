@@ -400,6 +400,7 @@ img.thumb { border: 1px solid var(--border); }
 }
 .badge.up { color: var(--green); background: var(--green-soft); }
 .badge.down { color: var(--red); background: var(--red-soft); }
+.badge.pending { color: var(--muted); background: var(--card); font-weight: 600; }
 
 .sparkline { width: 72px; height: 24px; display: block; }
 .sparkline polyline { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }

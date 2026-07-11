@@ -212,11 +212,17 @@ async function fetchAndCachePrice(key, project, article) {
   // Only fall back to the recent average when we have *some* data but happen
   // to be missing just the most recent day (publishing lag) - not when the
   // whole window came back empty, which should read as "0 views", not "avg views".
-  const latestViews = views.size > 0 ? views.get(formatYYYYMMDD(end)) ?? Math.round(premiumAvg) : 0;
+  const rawLatest = views.get(formatYYYYMMDD(end));
+  // Wikimedia's publishing lag isn't perfectly reliable at exactly 1 day -
+  // pendingLatest flags when we had to use the average as a stand-in because
+  // the actual latest day's number hasn't been published yet, so callers can
+  // show "check back later" instead of a fake, misleadingly-exact 0% change.
+  const pendingLatest = views.size > 0 && rawLatest == null;
+  const latestViews = views.size > 0 ? rawLatest ?? Math.round(premiumAvg) : 0;
   // "Change" = today vs. the last-30-days average, like a stock's move
   // relative to a short moving average (not the full-year baseline the price
-  // is anchored to). Guarded against #DIV/0 when the last 30 days are all 0.
-  const changePct = premiumAvg > 0 ? ((latestViews - premiumAvg) / premiumAvg) * 100 : 0;
+  // is anchored to). null (not 0) when there's no real "today" to compare yet.
+  const changePct = !pendingLatest && premiumAvg > 0 ? ((latestViews - premiumAvg) / premiumAvg) * 100 : null;
 
   // Last 7 available days, oldest first — free sparkline data from the same fetch.
   const spark = [];
@@ -231,7 +237,8 @@ async function fetchAndCachePrice(key, project, article) {
     avgViews,
     premium,
     latestViews,
-    changePct: Math.round(changePct * 10) / 10,
+    changePct: changePct == null ? null : Math.round(changePct * 10) / 10,
+    pendingLatest,
     spark,
     windowDays: YEAR_WINDOW_DAYS,
     updatedAt: Date.now(),
@@ -441,6 +448,7 @@ export async function getTrending(limit = 10) {
           rank,
           price: p.annualPrice,
           changePct: p.changePct,
+          pendingLatest: p.pendingLatest,
           latestViews: p.latestViews,
           spark: p.spark || null,
         };

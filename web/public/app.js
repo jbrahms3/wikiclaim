@@ -67,7 +67,24 @@ function thumbHtml(item, cls = "thumb") {
   /><span class="${cls}" style="display:none">${escapeHtml(initials(item.displayTitle || item.title))}</span></span>`;
 }
 
-function badgeHtml(changePct) {
+// Wikimedia hasn't published the latest day's numbers yet (its 1-day lag
+// isn't perfectly exact) - approximate "when" as the next UTC day boundary,
+// which is roughly when a new day's data starts becoming available.
+function resultsInText() {
+  const now = Date.now();
+  const nextUTCMidnight = Date.UTC(
+    new Date().getUTCFullYear(),
+    new Date().getUTCMonth(),
+    new Date().getUTCDate() + 1
+  );
+  const ms = nextUTCMidnight - now;
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return `Results in ${h}h ${m}m`;
+}
+
+function badgeHtml(changePct, pendingLatest) {
+  if (pendingLatest) return `<span class="badge pending">${resultsInText()}</span>`;
   if (changePct == null) return "";
   const up = changePct >= 0;
   return `<span class="badge ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${Math.abs(changePct)}%</span>`;
@@ -503,7 +520,7 @@ function renderHoldingsTable() {
       <td class="num">${fmt(h.currentPrice)}</td>
       <td class="num">${h.latestViews == null ? "—" : fmt(h.latestViews)}</td>
       <td class="num pos">+${fmt(h.totalEarned)}</td>
-      <td>${badgeHtml(h.changePct)}</td>
+      <td>${badgeHtml(h.changePct, h.pendingLatest)}</td>
       <td>${sparkSvg(h.spark, h.changePct)}</td>
       <td><button class="btn-ghost btn-sm">Sell</button></td>`;
     tr.querySelector("button").addEventListener("click", (e) => {
@@ -548,6 +565,9 @@ $("#ov-ranges").addEventListener("click", (e) => {
 function miniRow(item) {
   const li = document.createElement("li");
   const up = (item.changePct || 0) >= 0;
+  const changeHtml = item.pendingLatest
+    ? `<div class="mini-change">${resultsInText()}</div>`
+    : `<div class="mini-change ${up ? "pos" : "neg"}">${up ? "+" : ""}${item.changePct ?? 0}%</div>`;
   li.innerHTML = `
     ${thumbHtml(item)}
     <div class="mini-main">
@@ -556,7 +576,7 @@ function miniRow(item) {
     </div>
     <div class="mini-right">
       <div class="mini-price">${item.price == null ? "—" : fmt(item.price)}</div>
-      <div class="mini-change ${up ? "pos" : "neg"}">${up ? "+" : ""}${item.changePct ?? 0}%</div>
+      ${changeHtml}
     </div>`;
   li.addEventListener("click", () => openArticle(item.article));
   return li;
@@ -767,7 +787,7 @@ async function renderMarket() {
       </td>
       <td class="num">${r.price == null ? "—" : fmt(r.price)}</td>
       <td class="num">${r.latestViews == null ? "—" : fmt(r.latestViews)}</td>
-      <td>${badgeHtml(r.changePct)}</td>
+      <td>${badgeHtml(r.changePct, r.pendingLatest)}</td>
       <td>${sparkSvg(r.spark, r.changePct)}</td>
       <td><button class="btn-primary btn-sm"></button></td>`;
     const btn = tr.querySelector("button");
@@ -817,7 +837,7 @@ function renderWatchlistPage() {
         </div>
       </td>
       <td class="num">${w.price == null ? "—" : fmt(w.price)}</td>
-      <td>${badgeHtml(w.changePct)}</td>
+      <td>${badgeHtml(w.changePct, w.pendingLatest)}</td>
       <td>${sparkSvg(w.spark, w.changePct)}</td>
       <td><button class="btn-ghost btn-sm">Unwatch</button></td>`;
     tr.querySelector("button").addEventListener("click", async (e) => {
@@ -959,7 +979,10 @@ async function renderArticlePage(article) {
       onerror="this.style.visibility='hidden'" />`;
   }
   const changeEl = $("#det-change");
-  if (d.changePct == null) {
+  if (d.pendingLatest) {
+    changeEl.className = "badge pending";
+    changeEl.textContent = resultsInText();
+  } else if (d.changePct == null) {
     changeEl.className = "badge";
     changeEl.textContent = "";
   } else {
@@ -1033,7 +1056,7 @@ function renderDetailStats() {
   const rows = [
     ["Market price", d.price == null ? "—" : `${fmt(d.price)} pts`],
     ["Views (last day)", d.latestViews == null ? "—" : fmt(d.latestViews)],
-    ["vs 30-day avg", d.changePct == null ? "—" : `${d.changePct >= 0 ? "+" : ""}${d.changePct}%`],
+    ["vs 30-day avg", d.pendingLatest ? resultsInText() : d.changePct == null ? "—" : `${d.changePct >= 0 ? "+" : ""}${d.changePct}%`],
     ["Status", d.holding ? "In your portfolio" : "Unowned"],
   ];
   if (d.holding) {

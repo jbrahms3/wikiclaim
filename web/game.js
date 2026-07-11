@@ -133,6 +133,7 @@ export async function portfolio(userId) {
       purchasePrice: h.purchasePrice,
       currentPrice: current,
       changePct: price ? price.changePct : null,
+      pendingLatest: price ? !!price.pendingLatest : false,
       latestViews: price ? price.latestViews : null,
       spark: price ? price.spark || null : null,
       unpriced: !price,

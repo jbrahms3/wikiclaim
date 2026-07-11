@@ -175,7 +175,7 @@ app.get(
 // ("unpriced"), send nulls so the UI shows "no data" instead of a bogus 1.
 function pricePayload(p) {
   if (p.unpriced) {
-    return { price: null, changePct: null, latestViews: null, spark: null, unpriced: true };
+    return { price: null, changePct: null, latestViews: null, spark: null, unpriced: true, pendingLatest: false };
   }
   return {
     price: p.annualPrice,
@@ -183,6 +183,7 @@ function pricePayload(p) {
     latestViews: p.latestViews,
     spark: p.spark || null,
     unpriced: false,
+    pendingLatest: !!p.pendingLatest,
   };
 }
 
@@ -232,7 +233,7 @@ app.get(
           const p = await getPagePrice("en.wikipedia", r.article);
           return { ...r, ...pricePayload(p) };
         } catch {
-          return { ...r, price: null, changePct: null, latestViews: null, spark: null, unpriced: true };
+          return { ...r, price: null, changePct: null, latestViews: null, spark: null, unpriced: true, pendingLatest: false };
         }
       })
     );
@@ -335,7 +336,7 @@ app.get(
           const p = await getPagePrice(w.project, w.article);
           return { article: w.article, displayTitle: w.displayTitle, ...pricePayload(p) };
         } catch {
-          return { article: w.article, displayTitle: w.displayTitle, price: null, changePct: null, latestViews: null, spark: null, unpriced: true };
+          return { article: w.article, displayTitle: w.displayTitle, price: null, changePct: null, latestViews: null, spark: null, unpriced: true, pendingLatest: false };
         }
       })
     );

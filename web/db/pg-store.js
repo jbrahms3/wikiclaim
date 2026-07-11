@@ -107,6 +107,7 @@ const rowToCache = (r) => {
     premium: r.premium,
     latestViews: r.latest_views,
     changePct: r.change_pct,
+    pendingLatest: r.pending_latest,
     spark,
     windowDays: r.window_days,
     updatedAt: r.updated_at,
@@ -183,6 +184,7 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS change_pct DOUBLE PRECISION;`);
       await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS spark TEXT;`);
       await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS premium BIGINT;`);
+      await q(`ALTER TABLE page_cache ADD COLUMN IF NOT EXISTS pending_latest BOOLEAN;`);
       await q(`
         CREATE TABLE IF NOT EXISTS watchlist (
           user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -328,8 +330,8 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     async setPageCache(entry) {
       await q(
         `INSERT INTO page_cache
-           (key, project, article, avg_views, latest_views, change_pct, spark, window_days, updated_at, premium)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           (key, project, article, avg_views, latest_views, change_pct, spark, window_days, updated_at, premium, pending_latest)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (key) DO UPDATE SET
            avg_views = EXCLUDED.avg_views,
            latest_views = EXCLUDED.latest_views,
@@ -337,12 +339,14 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
            spark = EXCLUDED.spark,
            window_days = EXCLUDED.window_days,
            updated_at = EXCLUDED.updated_at,
-           premium = EXCLUDED.premium`,
+           premium = EXCLUDED.premium,
+           pending_latest = EXCLUDED.pending_latest`,
         [
           entry.key, entry.project, entry.article, entry.avgViews,
           entry.latestViews ?? null, entry.changePct ?? null,
           entry.spark ? JSON.stringify(entry.spark) : null,
           entry.windowDays, entry.updatedAt, entry.premium ?? null,
+          entry.pendingLatest ?? false,
         ]
       );
       return entry;
