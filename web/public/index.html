@@ -248,8 +248,13 @@
           <!-- Market -->
           <section class="page" id="page-market" hidden>
             <h1 class="page-title">Market</h1>
-            <p class="page-hint">Every article is priced from a year of its average daily readership, plus a bonus for the last 30 days' traffic. Search anything on Wikipedia.</p>
-            <div class="card table-card">
+            <p class="page-hint" id="market-page-hint">Every article is priced from a year of its average daily readership, plus a bonus for the last 30 days' traffic. Search anything on Wikipedia.</p>
+            <div class="pill-tabs page-tabs" id="market-tabs">
+              <button class="pill-tab active" data-tab="primary">Market</button>
+              <button class="pill-tab" data-tab="secondary">Secondary Market</button>
+            </div>
+
+            <div class="card table-card" id="market-primary-panel">
               <div class="card-head"><h2 id="market-list-title">Trending Articles</h2></div>
               <table class="table" id="market-table">
                 <thead>
@@ -260,7 +265,7 @@
               <p class="empty" id="market-empty" hidden>No articles found.</p>
             </div>
 
-            <div class="card table-card">
+            <div class="card table-card" id="market-secondary-panel" hidden>
               <div class="card-head"><h2>Secondary Market</h2></div>
               <p class="page-hint predict-hint">
                 Once someone owns an article it's off the primary market — this is

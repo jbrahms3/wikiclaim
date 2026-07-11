@@ -18,6 +18,7 @@ const state = {
   ovDays: 30,
   detDays: 30,
   moversTab: "trending",
+  marketTab: "primary",
   chartSeq: 0,
 };
 
@@ -756,7 +757,27 @@ async function renderPointsPage() {
 
 /* ================= market ================= */
 
+function setMarketTab(tab) {
+  state.marketTab = tab;
+  $("#market-tabs").querySelectorAll(".pill-tab").forEach((t) =>
+    t.classList.toggle("active", t.dataset.tab === tab)
+  );
+  $("#market-primary-panel").hidden = tab !== "primary";
+  $("#market-secondary-panel").hidden = tab !== "secondary";
+  $("#market-page-hint").hidden = tab !== "primary";
+}
+
+$("#market-tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".pill-tab");
+  if (!tab) return;
+  setMarketTab(tab.dataset.tab);
+});
+
 async function renderMarket() {
+  // Search results only apply to the primary market - jump back to it if a
+  // search lands while the secondary tab is showing.
+  if (state.route.q) state.marketTab = "primary";
+  setMarketTab(state.marketTab);
   renderSecondaryMarket(); // independent of the primary table's load state below
 
   const q = state.route.q || "";
