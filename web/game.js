@@ -351,7 +351,16 @@ export async function placeBet(userId, { project, article, displayTitle, directi
       "Couldn't verify this article's views right now (Wikimedia's stats API returned no data). Try again in a few seconds."
     );
   }
-  const startViews = Math.max(1, price.latestViews ?? price.avgViews);
+  // pendingLatest means Wikimedia hasn't published this article's most
+  // recent day yet, so "latestViews" is a 30-day-average stand-in, not a
+  // real day - starting a day-by-day bet from an averaged number would
+  // undermine the whole point. Wait for the real figure instead.
+  if (price.pendingLatest) {
+    throw new Error(
+      "Today's view count for this article hasn't been published by Wikimedia yet. Try again in a bit."
+    );
+  }
+  const startViews = Math.max(1, price.latestViews);
 
   const creditsLeft = await store.tryDebit(userId, stake);
   if (creditsLeft === null) {
@@ -383,6 +392,10 @@ export async function placeBet(userId, { project, article, displayTitle, directi
   return { bet, creditsLeft };
 }
 
+// How much longer past the 24h resolution window to keep waiting for a real
+// published day's figure before giving up and refunding the stake instead.
+const RESOLUTION_GRACE_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Resolve one bet if its window has passed. Payout scales with the real
  * % move in daily views: guess the direction right and get more than your
@@ -396,7 +409,19 @@ async function resolveBetIfDue(bet) {
   let endViews = bet.startViews;
   try {
     const price = await getPagePrice(bet.project, bet.article, { force: true });
-    if (!price.unpriced) endViews = Math.max(1, price.latestViews ?? price.avgViews);
+    if (!price.unpriced) {
+      if (price.pendingLatest) {
+        // Real day-by-day figure isn't published yet - resolving now would
+        // compare against a 30-day average, not what actually happened the
+        // next day. Leave it open and catch it on a later settle pass,
+        // unless we've already given Wikimedia a full extra day to catch up.
+        if (Date.now() < bet.resolvesAt + RESOLUTION_GRACE_MS) return null;
+        // Past the grace period: unknowable, so refund rather than guess -
+        // endViews stays at startViews (break-even), same as an API hiccup.
+      } else {
+        endViews = Math.max(1, price.latestViews);
+      }
+    }
   } catch {
     /* endViews stays at startViews -> break-even refund */
   }
@@ -446,7 +471,10 @@ export async function listBets(userId) {
       let currentViews = b.startViews;
       try {
         const p = await getPagePrice(b.project, b.article);
-        if (!p.unpriced) currentViews = Math.max(1, p.latestViews ?? p.avgViews);
+        // Same reasoning as resolution: an averaged pendingLatest number
+        // isn't a real day, so it'd be a misleading live preview - just
+        // show "no new info yet" (even) until a real figure is published.
+        if (!p.unpriced && !p.pendingLatest) currentViews = Math.max(1, p.latestViews);
       } catch {
         /* show start views as a fallback */
       }
