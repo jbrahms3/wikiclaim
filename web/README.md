@@ -186,7 +186,7 @@ entirely handled by Clerk's widget on the frontend.
 | POST   | `/api/listings/:id/cancel` | Cancel your listing (auth)         |
 | POST   | `/api/listings/:id/buy`    | Buy a listing - peer-to-peer, ownership transfers (auth) |
 
-The UI is **WikiMarket** — a light-themed, Robinhood-style trading dashboard:
+The UI is **WikiPicks** — a light-themed, Robinhood-style trading dashboard:
 left nav sidebar, header with global search and a category-index ticker
 (each index is a basket of real articles priced from live pageviews),
 a portfolio overview with an earnings chart and metric cards, a holdings

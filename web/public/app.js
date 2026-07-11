@@ -246,7 +246,7 @@ async function signInSucceeded() {
       window.api = api; // expose for manual re-runs in the console
       try {
         const diag = await api("/api/debug/auth");
-        console.log("[WikiMarket auth diagnostic] full report:", diag);
+        console.log("[WikiPicks auth diagnostic] full report:", diag);
         const hint = {
           "no-token": "The browser isn't sending a Clerk token. getToken() likely returned null - check window.Clerk.session is non-null.",
           "no-secret-key": "The server has no CLERK_SECRET_KEY set. Add it in Railway -> your service -> Variables, then redeploy.",
@@ -257,13 +257,13 @@ async function signInSucceeded() {
         // Everything in one line - reason, likely cause, and the raw payload -
         // so copy-pasting just this one line to me is enough to diagnose it.
         console.warn(
-          `[WikiMarket auth diagnostic] reason="${diag.reason}"` +
+          `[WikiPicks auth diagnostic] reason="${diag.reason}"` +
             (hint ? ` likelyCause="${hint}"` : "") +
             (diag.detail ? ` detail=${diag.detail}` : "") +
             ` secretKeyConfigured=${diag.secretKeyConfigured} secretKeyPrefix=${diag.secretKeyPrefix} tokenLength=${diag.tokenLength}`
         );
       } catch (e) {
-        console.error("[WikiMarket auth diagnostic] failed to reach /api/debug/auth:", e);
+        console.error("[WikiPicks auth diagnostic] failed to reach /api/debug/auth:", e);
       }
       return;
     }
@@ -657,7 +657,7 @@ function feedItemHtml(ev) {
     text = `${user} sold <b>${title}</b> for ${fmt(ev.amount)} pts`;
   } else if (ev.type === "join") {
     dot = "join";
-    text = `${user} joined WikiMarket`;
+    text = `${user} joined WikiPicks`;
   } else if (ev.type === "bet") {
     text = `${user} predicted <b>${title}</b> for ${fmt(ev.amount)} pts`;
   } else if (ev.type === "bet-resolved") {

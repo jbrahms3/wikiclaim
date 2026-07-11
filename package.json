@@ -2,7 +2,7 @@
   "name": "wikiclaim",
   "private": true,
   "version": "1.0.0",
-  "description": "WikiClaim monorepo: the WikiMarket trading-game server lives in web/; the browser extension lives at the repo root.",
+  "description": "WikiClaim monorepo: the WikiPicks trading-game server lives in web/; the browser extension lives at the repo root.",
   "scripts": {
     "postinstall": "cd web && npm install",
     "start": "node web/server.js",
