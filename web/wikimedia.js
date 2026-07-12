@@ -219,10 +219,19 @@ async function fetchAndCachePrice(key, project, article) {
   // show "check back later" instead of a fake, misleadingly-exact 0% change.
   const pendingLatest = views.size > 0 && rawLatest == null;
   const latestViews = views.size > 0 ? rawLatest ?? Math.round(premiumAvg) : 0;
-  // "Change" = today vs. the last-30-days average, like a stock's move
-  // relative to a short moving average (not the full-year baseline the price
-  // is anchored to). null (not 0) when there's no real "today" to compare yet.
-  const changePct = !pendingLatest && premiumAvg > 0 ? ((latestViews - premiumAvg) / premiumAvg) * 100 : null;
+
+  // Three ways to express "change", all comparing the latest day against a
+  // different baseline. changePct (daily, vs. yesterday) is the default the
+  // UI shows; changePct30d/changePctYear are offered as a toggle for anyone
+  // who wants the smoothed view instead. null (not 0) when there's no real
+  // baseline to compare against yet.
+  const prevDayViews = views.get(formatYYYYMMDD(addDaysUTC(end, -1)));
+  const pctVs = (baseline) =>
+    !pendingLatest && baseline > 0 ? ((latestViews - baseline) / baseline) * 100 : null;
+  const round1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
+  const changePct = round1(pctVs(prevDayViews || 0));
+  const changePct30d = round1(pctVs(premiumAvg));
+  const changePctYear = round1(pctVs(avgViews));
 
   // Last 7 available days, oldest first — free sparkline data from the same fetch.
   const spark = [];
@@ -237,7 +246,9 @@ async function fetchAndCachePrice(key, project, article) {
     avgViews,
     premium,
     latestViews,
-    changePct: changePct == null ? null : Math.round(changePct * 10) / 10,
+    changePct,
+    changePct30d,
+    changePctYear,
     pendingLatest,
     spark,
     windowDays: YEAR_WINDOW_DAYS,
@@ -448,6 +459,8 @@ export async function getTrending(limit = 10) {
           rank,
           price: p.annualPrice,
           changePct: p.changePct,
+          changePct30d: p.changePct30d,
+          changePctYear: p.changePctYear,
           pendingLatest: p.pendingLatest,
           latestViews: p.latestViews,
           spark: p.spark || null,

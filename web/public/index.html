@@ -90,7 +90,12 @@
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
             <input id="search-input" placeholder='Search Wikipedia articles, e.g. "Black hole", "Minecraft", "Chess"' />
           </form>
-          <a class="btn-ghost btn-sm" href="#/discover" id="discover-nav-btn">🔀 Discover</a>
+          <a class="btn-ghost btn-sm" href="#/discover" id="discover-nav-btn">🔀 <span class="discover-label">Discover</span></a>
+          <div class="change-basis-toggle" id="change-basis-toggle" title="Change % baseline">
+            <button class="cb-opt active" data-basis="daily" type="button">1D</button>
+            <button class="cb-opt" data-basis="30d" type="button">30D</button>
+            <button class="cb-opt" data-basis="year" type="button">1Y</button>
+          </div>
           <div class="header-stats">
             <div class="hstat" id="hdr-networth-stat" hidden>
               <span class="hstat-label">Portfolio Value</span>
@@ -163,7 +168,7 @@
                       <thead>
                         <tr>
                           <th>Article</th><th>Cost</th><th>Price</th><th>Views (24h)</th>
-                          <th>Earned</th><th>Change</th><th>7D</th><th></th>
+                          <th>Earned</th><th id="holdings-change-th">Change</th><th>7D</th><th></th>
                         </tr>
                       </thead>
                       <tbody></tbody>
@@ -264,7 +269,7 @@
               <div class="card-head"><h2 id="market-list-title">Trending Articles</h2></div>
               <table class="table" id="market-table">
                 <thead>
-                  <tr><th>Article</th><th>Price</th><th>Views (24h)</th><th>Change</th><th>7D</th><th></th></tr>
+                  <tr><th>Article</th><th>Price</th><th>Views (24h)</th><th id="market-change-th">Change</th><th>7D</th><th></th></tr>
                 </thead>
                 <tbody></tbody>
               </table>
@@ -311,7 +316,7 @@
               </div>
               <table class="table" id="discover-table">
                 <thead>
-                  <tr><th>Article</th><th>Price</th><th>Views (24h)</th><th>Change</th><th>7D</th><th></th></tr>
+                  <tr><th>Article</th><th>Price</th><th>Views (24h)</th><th id="discover-change-th">Change</th><th>7D</th><th></th></tr>
                 </thead>
                 <tbody></tbody>
               </table>
@@ -330,7 +335,7 @@
             <div class="card table-card" id="watchlist-content" hidden>
               <table class="table" id="watchlist-table">
                 <thead>
-                  <tr><th>Article</th><th>Price</th><th>Change</th><th>7D</th><th></th></tr>
+                  <tr><th>Article</th><th>Price</th><th id="watchlist-change-th">Change</th><th>7D</th><th></th></tr>
                 </thead>
                 <tbody></tbody>
               </table>
