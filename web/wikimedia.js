@@ -515,39 +515,49 @@ export async function getRandomArticles(limit = 20) {
 }
 
 /**
- * Real Wikipedia category members (main namespace only) - lets users browse
- * an actual category tree instead of the small curated CATEGORY_BASKETS.
- * `category` may be given with or without the "Category:" prefix.
+ * Real Wikipedia category members, INCLUDING subcategories (main namespace
+ * only) - lets users browse an actual category tree instead of the small
+ * curated CATEGORY_BASKETS. Uses the search engine's `deepcat:` operator
+ * rather than the plain categorymembers API: direct membership alone is
+ * often nearly empty for broad topics (e.g. Category:Sports has exactly one
+ * directly-tagged article - Wikipedia organizes almost everything into
+ * subcategories instead), while deepcat recursively includes the whole
+ * subcategory tree, typically turning a few hundred candidates into tens of
+ * thousands. `category` may be given with or without the "Category:" prefix.
  * Returns [{ title, article }].
  */
-export async function getCategoryMembers(category, limit = 30) {
-  const title = category.startsWith("Category:") ? category : `Category:${category}`;
+export async function getCategoryMembers(category, limit = 24) {
+  const name = category.replace(/^Category:/, "").replace(/_/g, " ");
+  const srsearch = `deepcat:"${name}"`;
+  const baseParams = { action: "query", list: "search", srsearch, srnamespace: "0", format: "json", origin: "*" };
+
+  // First, a cheap call just to learn the pool size, so we can jump to a
+  // random offset into it - without this, every fetch (and every "Shuffle"
+  // click) would draw from the same fixed top-500 relevance-ranked results.
+  const countRes = await fetch(
+    "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({ ...baseParams, srlimit: "1" }),
+    { headers: { "User-Agent": UA } }
+  );
+  if (!countRes.ok) throw new Error(`Search API ${countRes.status}`);
+  const countData = await countRes.json();
+  const total = countData.query?.searchinfo?.totalhits || 0;
+  if (!total) return [];
+
+  // Cap how deep we'll jump into the results - MediaWiki search offsets get
+  // unreliable/slow far out, and this is already plenty of variety.
+  const maxOffset = Math.max(0, Math.min(total - limit, 2000));
+  const offset = Math.floor(Math.random() * (maxOffset + 1));
+
   const url =
     "https://en.wikipedia.org/w/api.php?" +
-    new URLSearchParams({
-      action: "query",
-      list: "categorymembers",
-      cmtitle: title,
-      cmnamespace: "0",
-      cmlimit: "500", // max allowed for anonymous requests - draw our sample from this whole pool
-      format: "json",
-      origin: "*",
-    });
+    new URLSearchParams({ ...baseParams, srlimit: String(limit), sroffset: String(offset) });
   const res = await fetch(url, { headers: { "User-Agent": UA } });
-  if (!res.ok) throw new Error(`Categorymembers API ${res.status}`);
+  if (!res.ok) throw new Error(`Search API ${res.status}`);
   const data = await res.json();
-  const members = (data.query?.categorymembers || []).map((r) => ({
+  return (data.query?.search || []).map((r) => ({
     title: r.title,
     article: r.title.replace(/ /g, "_"),
   }));
-  // The API always returns members in the same fixed (alphabetical) order,
-  // so without shuffling, every fetch - and every "Shuffle" click - would
-  // show the exact same first N articles. Sample randomly from the pool.
-  for (let i = members.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [members[i], members[j]] = [members[j], members[i]];
-  }
-  return members.slice(0, limit);
 }
 
 // The search API returns snippets with HTML entities (&quot;, &#039; ...).

@@ -27,20 +27,22 @@ const state = {
 
 // Curated starting points for category browsing - real Wikipedia category
 // names (value: null means "Random", handled separately via /api/discover
-// with no ?category=). Broad umbrella categories (e.g. "Category:Sports")
-// mostly just organize subcategories and have almost no articles tagged
-// directly, so these are deliberately more specific leaf-ish categories
-// that actually hold a large pool of articles to shuffle through.
+// with no ?category=). getCategoryMembers uses the `deepcat:` search
+// operator, which recursively pulls in subcategories - so these can be the
+// broad, obvious topic names. Two exceptions: "Sports" and "History" hit
+// CirrusSearch's recursion-safety limit (their subcategory trees are too
+// large/complex to expand) and silently return almost nothing, so those two
+// use a still-broad but slightly narrower substitute instead.
 const DISCOVER_CATEGORIES = [
   { label: "Random", value: null },
-  { label: "Science", value: "Chemistry" },
+  { label: "Science", value: "Science" },
   { label: "Technology", value: "Technology" },
-  { label: "History", value: "20th_century" },
-  { label: "Film & TV", value: "Film_genres" },
-  { label: "Music", value: "Music_genres" },
-  { label: "Video Games", value: "Video_game_genres" },
-  { label: "Sports", value: "Team_sports" },
-  { label: "Geography", value: "Landforms" },
+  { label: "History", value: "World history" },
+  { label: "Film & TV", value: "Film" },
+  { label: "Music", value: "Music" },
+  { label: "Video Games", value: "Video games" },
+  { label: "Sports", value: "Team sports" },
+  { label: "Geography", value: "Geography" },
 ];
 
 /* ================= helpers ================= */
