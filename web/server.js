@@ -38,6 +38,8 @@ import {
   getTrending,
   getArticleHistory,
   getCategoryIndexes,
+  getRandomArticles,
+  getCategoryMembers,
 } from "./wikimedia.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -81,6 +83,16 @@ app.use(
 const forcedFetchLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests - try again in a minute." },
+});
+// Each /api/discover hit fans out to ~20-24 Wikimedia price lookups (cache
+// absorbs repeats), so it's capped more tightly than a plain read but still
+// loose enough for someone rapidly hitting "Shuffle".
+const discoverLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests - try again in a minute." },
@@ -312,6 +324,32 @@ app.get(
   "/api/categories",
   wrap(async (req, res) => {
     res.json({ categories: await getCategoryIndexes() });
+  })
+);
+
+// Exploration feed for browsing articles without a search term: a random
+// batch of Wikipedia articles, or (with ?category=) real members of an
+// actual Wikipedia category - not the small curated CATEGORY_BASKETS used
+// for the trending-page summary tiles.
+app.get(
+  "/api/discover",
+  discoverLimiter,
+  wrap(async (req, res) => {
+    const category = String(req.query.category || "").trim();
+    const candidates = category
+      ? await getCategoryMembers(category, 24)
+      : await getRandomArticles(20);
+    const priced = await Promise.all(
+      candidates.map(async (c) => {
+        try {
+          const p = await getPagePrice("en.wikipedia", c.article);
+          return { ...c, ...pricePayload(p) };
+        } catch {
+          return { ...c, price: null, changePct: null, latestViews: null, spark: null, unpriced: true, pendingLatest: false };
+        }
+      })
+    );
+    res.json({ items: await attachOwnership(await attachMeta(priced), req.userId) });
   })
 );
 

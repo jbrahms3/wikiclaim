@@ -12,6 +12,9 @@ const state = {
   leaderboard: [],
   bets: { open: [], resolved: [] },
   listings: [],
+  discover: [],
+  discoverCategoryIdx: 0,
+  discoverSeq: 0,
   predictDirection: null,
   detail: null,
   route: { page: "overview" },
@@ -21,6 +24,21 @@ const state = {
   marketTab: "primary",
   chartSeq: 0,
 };
+
+// Curated starting points for category browsing - real Wikipedia category
+// names (value: null means "Random", handled separately via /api/discover
+// with no ?category=).
+const DISCOVER_CATEGORIES = [
+  { label: "Random", value: null },
+  { label: "Science", value: "Physics" },
+  { label: "Technology", value: "Technology" },
+  { label: "History", value: "History" },
+  { label: "Film & TV", value: "Film" },
+  { label: "Music", value: "Music" },
+  { label: "Video Games", value: "Video_games" },
+  { label: "Sports", value: "Sports" },
+  { label: "Geography", value: "Geography" },
+];
 
 /* ================= helpers ================= */
 
@@ -778,6 +796,7 @@ function setMarketTab(tab) {
   );
   $("#market-primary-panel").hidden = tab !== "primary";
   $("#market-secondary-panel").hidden = tab !== "secondary";
+  $("#market-discover-panel").hidden = tab !== "discover";
   $("#market-page-hint").hidden = tab !== "primary";
 }
 
@@ -785,7 +804,57 @@ $("#market-tabs").addEventListener("click", (e) => {
   const tab = e.target.closest(".pill-tab");
   if (!tab) return;
   setMarketTab(tab.dataset.tab);
+  if (tab.dataset.tab === "discover" && !state.discover.length) fetchDiscover();
 });
+
+/* ================= discover ================= */
+
+function renderDiscoverCategoryChips() {
+  $("#discover-categories").innerHTML = DISCOVER_CATEGORIES.map(
+    (c, i) =>
+      `<button class="pill-tab${i === state.discoverCategoryIdx ? " active" : ""}" data-idx="${i}">${escapeHtml(c.label)}</button>`
+  ).join("");
+}
+renderDiscoverCategoryChips();
+
+$("#discover-categories").addEventListener("click", (e) => {
+  const btn = e.target.closest(".pill-tab");
+  if (!btn) return;
+  state.discoverCategoryIdx = Number(btn.dataset.idx);
+  renderDiscoverCategoryChips();
+  fetchDiscover();
+});
+
+$("#discover-shuffle-btn").addEventListener("click", () => fetchDiscover());
+
+async function fetchDiscover() {
+  const seq = ++state.discoverSeq;
+  const cat = DISCOVER_CATEGORIES[state.discoverCategoryIdx];
+  $("#discover-title").textContent = cat.value ? `Category: ${cat.label}` : "Random Articles";
+  const tbody = $("#discover-table tbody");
+  $("#discover-empty").hidden = true;
+  tbody.innerHTML = `<tr><td colspan="6" class="empty">Loading…</td></tr>`;
+
+  let items;
+  try {
+    const qs = cat.value ? `?category=${encodeURIComponent(cat.value)}` : "";
+    ({ items } = await api(`/api/discover${qs}`));
+  } catch (err) {
+    if (seq !== state.discoverSeq) return; // superseded by a newer request
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">${escapeHtml(err.message)}</td></tr>`;
+    return;
+  }
+  // A newer shuffle/category click landed first - drop this stale response.
+  if (seq !== state.discoverSeq) return;
+
+  state.discover = items;
+  tbody.innerHTML = "";
+  if (!items.length) {
+    $("#discover-empty").hidden = false;
+    return;
+  }
+  for (const r of items) tbody.appendChild(buildArticleRow(r));
+}
 
 async function renderMarket() {
   // Search results only apply to the primary market - jump back to it if a
@@ -825,65 +894,70 @@ async function renderMarket() {
     return;
   }
 
-  for (const r of items) {
-    const title = r.title || r.displayTitle;
-    // Signed out: don't disable on affordability (we don't know their
-    // balance) - clicking prompts sign-in instead.
-    const affordable = r.price != null && (!state.user || state.me.user.credits >= r.price);
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>
-        <div class="cell-article">
-          ${thumbHtml(r)}
-          <div>
-            <div class="cell-title">${escapeHtml(title)}</div>
-            <div class="cell-sub">${escapeHtml(r.description || r.snippet || "")}</div>
-          </div>
+  for (const r of items) tbody.appendChild(buildArticleRow(r));
+}
+
+// Shared row builder for any table of priced/ownership-decorated articles
+// (primary market, search results, discover) - same columns, same
+// Claim/Owned/Buy-listing/retry button logic everywhere.
+function buildArticleRow(r) {
+  const title = r.title || r.displayTitle;
+  // Signed out: don't disable on affordability (we don't know their
+  // balance) - clicking prompts sign-in instead.
+  const affordable = r.price != null && (!state.user || state.me.user.credits >= r.price);
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td>
+      <div class="cell-article">
+        ${thumbHtml(r)}
+        <div>
+          <div class="cell-title">${escapeHtml(title)}</div>
+          <div class="cell-sub">${escapeHtml(r.description || r.snippet || "")}</div>
         </div>
-      </td>
-      <td class="num">${r.price == null ? "—" : fmt(r.price)}</td>
-      <td class="num">${r.latestViews == null ? "—" : fmt(r.latestViews)}</td>
-      <td>${badgeHtml(r.changePct, r.pendingLatest)}</td>
-      <td>${sparkSvg(r.spark, r.changePct)}</td>
-      <td><button class="btn-primary btn-sm"></button></td>`;
-    const btn = tr.querySelector("button");
-    // Ownership is exclusive - "Claim" only makes sense for genuinely
-    // unowned articles. Owned-and-listed routes to buying the listing
-    // instead; owned-and-unlisted just isn't available right now.
-    if (r.ownedByMe) {
-      btn.textContent = "Owned";
-      btn.disabled = true;
-    } else if (r.owned && r.listing) {
-      const listingAffordable = !state.user || state.me.user.credits >= r.listing.askPrice;
-      btn.textContent = listingAffordable ? `Buy for ${fmt(r.listing.askPrice)}` : "Too pricey";
-      btn.disabled = !listingAffordable;
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        buyListingAction(r.listing.id, title, r.listing.askPrice);
-      });
-    } else if (r.owned) {
-      btn.textContent = "Not for sale";
-      btn.disabled = true;
-    } else if (r.price == null) {
-      // Pricing data didn't come back (transient Wikimedia flakiness) —
-      // offer a manual re-check instead of a misleading disabled state.
-      btn.textContent = "No data — retry";
-      btn.disabled = false;
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        reprice(r.article, title, btn);
-      });
-    } else {
-      btn.textContent = affordable ? "Claim" : "Too pricey";
-      btn.disabled = !affordable;
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        buy({ article: r.article, title }, btn);
-      });
-    }
-    tr.addEventListener("click", () => openArticle(r.article));
-    tbody.appendChild(tr);
+      </div>
+    </td>
+    <td class="num">${r.price == null ? "—" : fmt(r.price)}</td>
+    <td class="num">${r.latestViews == null ? "—" : fmt(r.latestViews)}</td>
+    <td>${badgeHtml(r.changePct, r.pendingLatest)}</td>
+    <td>${sparkSvg(r.spark, r.changePct)}</td>
+    <td><button class="btn-primary btn-sm"></button></td>`;
+  const btn = tr.querySelector("button");
+  // Ownership is exclusive - "Claim" only makes sense for genuinely
+  // unowned articles. Owned-and-listed routes to buying the listing
+  // instead; owned-and-unlisted just isn't available right now.
+  if (r.ownedByMe) {
+    btn.textContent = "Owned";
+    btn.disabled = true;
+  } else if (r.owned && r.listing) {
+    const listingAffordable = !state.user || state.me.user.credits >= r.listing.askPrice;
+    btn.textContent = listingAffordable ? `Buy for ${fmt(r.listing.askPrice)}` : "Too pricey";
+    btn.disabled = !listingAffordable;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      buyListingAction(r.listing.id, title, r.listing.askPrice);
+    });
+  } else if (r.owned) {
+    btn.textContent = "Not for sale";
+    btn.disabled = true;
+  } else if (r.price == null) {
+    // Pricing data didn't come back (transient Wikimedia flakiness) —
+    // offer a manual re-check instead of a misleading disabled state.
+    btn.textContent = "No data — retry";
+    btn.disabled = false;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      reprice(r.article, title, btn);
+    });
+  } else {
+    btn.textContent = affordable ? "Claim" : "Too pricey";
+    btn.disabled = !affordable;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      buy({ article: r.article, title }, btn);
+    });
   }
+  tr.addEventListener("click", () => openArticle(r.article));
+  return tr;
 }
 
 function renderSecondaryMarket() {

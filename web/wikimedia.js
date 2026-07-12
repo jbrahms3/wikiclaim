@@ -490,6 +490,58 @@ export async function searchArticles(query) {
   }));
 }
 
+/**
+ * A batch of genuinely random English Wikipedia articles (main namespace
+ * only). Returns [{ title, article }].
+ */
+export async function getRandomArticles(limit = 20) {
+  const url =
+    "https://en.wikipedia.org/w/api.php?" +
+    new URLSearchParams({
+      action: "query",
+      list: "random",
+      rnnamespace: "0",
+      rnlimit: String(limit),
+      format: "json",
+      origin: "*",
+    });
+  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  if (!res.ok) throw new Error(`Random API ${res.status}`);
+  const data = await res.json();
+  return (data.query?.random || []).map((r) => ({
+    title: r.title,
+    article: r.title.replace(/ /g, "_"),
+  }));
+}
+
+/**
+ * Real Wikipedia category members (main namespace only) - lets users browse
+ * an actual category tree instead of the small curated CATEGORY_BASKETS.
+ * `category` may be given with or without the "Category:" prefix.
+ * Returns [{ title, article }].
+ */
+export async function getCategoryMembers(category, limit = 30) {
+  const title = category.startsWith("Category:") ? category : `Category:${category}`;
+  const url =
+    "https://en.wikipedia.org/w/api.php?" +
+    new URLSearchParams({
+      action: "query",
+      list: "categorymembers",
+      cmtitle: title,
+      cmnamespace: "0",
+      cmlimit: String(limit),
+      format: "json",
+      origin: "*",
+    });
+  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  if (!res.ok) throw new Error(`Categorymembers API ${res.status}`);
+  const data = await res.json();
+  return (data.query?.categorymembers || []).map((r) => ({
+    title: r.title,
+    article: r.title.replace(/ /g, "_"),
+  }));
+}
+
 // The search API returns snippets with HTML entities (&quot;, &#039; ...).
 // Decode the common ones so the UI shows real punctuation, not "&quot;".
 function decodeEntities(s) {
