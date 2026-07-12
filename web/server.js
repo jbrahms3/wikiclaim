@@ -40,6 +40,7 @@ import {
   getCategoryIndexes,
   getRandomArticles,
   getCategoryMembers,
+  suggestCategories,
 } from "./wikimedia.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -350,6 +351,17 @@ app.get(
       })
     );
     res.json({ items: await attachOwnership(await attachMeta(priced), req.userId) });
+  })
+);
+
+// Autocomplete for the Discover page's custom category search - just real
+// Wikipedia category names, no pricing involved, so it rides the general
+// /api rate limiter rather than needing its own.
+app.get(
+  "/api/category-suggest",
+  wrap(async (req, res) => {
+    const q = String(req.query.q || "");
+    res.json({ categories: await suggestCategories(q) });
   })
 );
 

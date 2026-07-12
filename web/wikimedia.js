@@ -560,6 +560,33 @@ export async function getCategoryMembers(category, limit = 24) {
   }));
 }
 
+/**
+ * Live autocomplete for the Discover page's custom category search. English
+ * Wikipedia has roughly 2.4 million categories, far too many to list, and
+ * deepcat: needs an exact category title - so this lets someone type a few
+ * letters and get real matching category names back. Returns string[]
+ * (category names without the "Category:" prefix).
+ */
+export async function suggestCategories(query, limit = 8) {
+  const q = query.trim();
+  if (!q) return [];
+  const url =
+    "https://en.wikipedia.org/w/api.php?" +
+    new URLSearchParams({
+      action: "query",
+      list: "prefixsearch",
+      pssearch: q,
+      psnamespace: "14", // Category:
+      pslimit: String(limit),
+      format: "json",
+      origin: "*",
+    });
+  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  if (!res.ok) throw new Error(`Prefixsearch API ${res.status}`);
+  const data = await res.json();
+  return (data.query?.prefixsearch || []).map((r) => r.title.replace(/^Category:/, ""));
+}
+
 // The search API returns snippets with HTML entities (&quot;, &#039; ...).
 // Decode the common ones so the UI shows real punctuation, not "&quot;".
 function decodeEntities(s) {

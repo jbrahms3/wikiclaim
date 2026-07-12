@@ -90,6 +90,7 @@
             <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
             <input id="search-input" placeholder='Search Wikipedia articles, e.g. "Black hole", "Minecraft", "Chess"' />
           </form>
+          <a class="btn-ghost btn-sm" href="#/discover" id="discover-nav-btn">🔀 Discover</a>
           <div class="header-stats">
             <div class="hstat" id="hdr-networth-stat" hidden>
               <span class="hstat-label">Portfolio Value</span>
@@ -257,7 +258,6 @@
             <div class="pill-tabs page-tabs" id="market-tabs">
               <button class="pill-tab active" data-tab="primary">Market</button>
               <button class="pill-tab" data-tab="secondary">Secondary Market</button>
-              <button class="pill-tab" data-tab="discover">Discover</button>
             </div>
 
             <div class="card table-card" id="market-primary-panel">
@@ -285,17 +285,30 @@
               </table>
               <p class="empty" id="secondary-market-empty" hidden>No articles listed for resale right now.</p>
             </div>
+          </section>
 
-            <div class="card table-card" id="market-discover-panel" hidden>
+          <!-- Discover -->
+          <section class="page" id="page-discover" hidden>
+            <h1 class="page-title">Discover</h1>
+            <p class="page-hint">
+              Browse Wikipedia without searching for anything specific - a random
+              batch, or real articles from an actual Wikipedia category (including
+              subcategories) - any category on Wikipedia, not just the ones below.
+            </p>
+
+            <div class="card" id="discover-search-card">
+              <div class="discover-category-search">
+                <input id="discover-category-input" type="text" placeholder="Search any Wikipedia category, e.g. &quot;Jazz musicians&quot;, &quot;Dinosaurs&quot;" autocomplete="off" />
+                <div class="discover-suggestions" id="discover-suggestions" hidden></div>
+              </div>
+              <div class="pill-tabs" id="discover-categories"></div>
+            </div>
+
+            <div class="card table-card">
               <div class="card-head">
                 <h2 id="discover-title">Random Articles</h2>
                 <button class="btn-ghost btn-sm" id="discover-shuffle-btn">🔀 Shuffle</button>
               </div>
-              <p class="page-hint predict-hint">
-                Browse Wikipedia without searching for anything specific - a random
-                batch, or real articles from an actual Wikipedia category.
-              </p>
-              <div class="pill-tabs" id="discover-categories"></div>
               <table class="table" id="discover-table">
                 <thead>
                   <tr><th>Article</th><th>Price</th><th>Views (24h)</th><th>Change</th><th>7D</th><th></th></tr>

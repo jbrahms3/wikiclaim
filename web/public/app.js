@@ -13,8 +13,9 @@ const state = {
   bets: { open: [], resolved: [] },
   listings: [],
   discover: [],
-  discoverCategoryIdx: 0,
+  discoverCategory: null, // set below once DISCOVER_CATEGORIES exists (defaults to "Random")
   discoverSeq: 0,
+  discoverSuggestSeq: 0,
   predictDirection: null,
   detail: null,
   route: { page: "overview" },
@@ -44,6 +45,7 @@ const DISCOVER_CATEGORIES = [
   { label: "Sports", value: "Team sports" },
   { label: "Geography", value: "Geography" },
 ];
+state.discoverCategory = DISCOVER_CATEGORIES[0];
 
 /* ================= helpers ================= */
 
@@ -423,7 +425,7 @@ function renderTicker() {
 
 /* ================= router ================= */
 
-const PAGES = ["overview", "points", "market", "watchlist", "predictions", "leaderboard", "activity", "article"];
+const PAGES = ["overview", "points", "market", "discover", "watchlist", "predictions", "leaderboard", "activity", "article"];
 
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, "");
@@ -455,6 +457,7 @@ function renderRoute() {
   if (page === "overview") renderOverview();
   else if (page === "points") renderPointsPage();
   else if (page === "market") renderMarket();
+  else if (page === "discover") renderDiscoverPage();
   else if (page === "watchlist") renderWatchlistPage();
   else if (page === "predictions") renderPredictionsPage();
   else if (page === "leaderboard") renderLeaderboardPage();
@@ -801,7 +804,6 @@ function setMarketTab(tab) {
   );
   $("#market-primary-panel").hidden = tab !== "primary";
   $("#market-secondary-panel").hidden = tab !== "secondary";
-  $("#market-discover-panel").hidden = tab !== "discover";
   $("#market-page-hint").hidden = tab !== "primary";
 }
 
@@ -809,32 +811,88 @@ $("#market-tabs").addEventListener("click", (e) => {
   const tab = e.target.closest(".pill-tab");
   if (!tab) return;
   setMarketTab(tab.dataset.tab);
-  if (tab.dataset.tab === "discover" && !state.discover.length) fetchDiscover();
 });
 
 /* ================= discover ================= */
 
 function renderDiscoverCategoryChips() {
   $("#discover-categories").innerHTML = DISCOVER_CATEGORIES.map(
-    (c, i) =>
-      `<button class="pill-tab${i === state.discoverCategoryIdx ? " active" : ""}" data-idx="${i}">${escapeHtml(c.label)}</button>`
+    (c) =>
+      `<button class="pill-tab${c.value === state.discoverCategory.value ? " active" : ""}" data-value="${escapeHtml(c.value || "")}">${escapeHtml(c.label)}</button>`
   ).join("");
 }
-renderDiscoverCategoryChips();
+
+function selectDiscoverCategory(cat) {
+  state.discoverCategory = cat;
+  renderDiscoverCategoryChips();
+  fetchDiscover();
+}
 
 $("#discover-categories").addEventListener("click", (e) => {
   const btn = e.target.closest(".pill-tab");
   if (!btn) return;
-  state.discoverCategoryIdx = Number(btn.dataset.idx);
-  renderDiscoverCategoryChips();
-  fetchDiscover();
+  const cat = DISCOVER_CATEGORIES.find((c) => (c.value || "") === btn.dataset.value);
+  $("#discover-category-input").value = ""; // a curated chip overrides any typed custom search
+  selectDiscoverCategory(cat);
 });
 
 $("#discover-shuffle-btn").addEventListener("click", () => fetchDiscover());
 
+// Custom category search: debounced live suggestions from real Wikipedia
+// category names (English Wikipedia has ~2.4M categories - far too many to
+// list, and deepcat: needs an exact title, so this is how anything beyond
+// the curated chips above gets found).
+let discoverSuggestTimer = null;
+const discoverCategoryInput = $("#discover-category-input");
+const discoverSuggestionsEl = $("#discover-suggestions");
+
+discoverCategoryInput.addEventListener("input", () => {
+  clearTimeout(discoverSuggestTimer);
+  const q = discoverCategoryInput.value.trim();
+  if (!q) {
+    discoverSuggestionsEl.hidden = true;
+    return;
+  }
+  discoverSuggestTimer = setTimeout(() => fetchCategorySuggestions(q), 250);
+});
+
+discoverCategoryInput.addEventListener("blur", () => {
+  // Let a suggestion's click register before we hide the list.
+  setTimeout(() => (discoverSuggestionsEl.hidden = true), 150);
+});
+
+async function fetchCategorySuggestions(q) {
+  const seq = ++state.discoverSuggestSeq;
+  let categories;
+  try {
+    ({ categories } = await api(`/api/category-suggest?q=${encodeURIComponent(q)}`));
+  } catch {
+    return;
+  }
+  if (seq !== state.discoverSuggestSeq) return; // superseded by newer typing
+  if (!categories.length) {
+    discoverSuggestionsEl.hidden = true;
+    return;
+  }
+  discoverSuggestionsEl.innerHTML = categories
+    .map((c) => `<button type="button" class="discover-suggestion">${escapeHtml(c)}</button>`)
+    .join("");
+  discoverSuggestionsEl.hidden = false;
+}
+
+discoverSuggestionsEl.addEventListener("mousedown", (e) => {
+  // mousedown (not click) fires before the input's blur handler hides us.
+  const btn = e.target.closest(".discover-suggestion");
+  if (!btn) return;
+  const name = btn.textContent;
+  discoverCategoryInput.value = name;
+  discoverSuggestionsEl.hidden = true;
+  selectDiscoverCategory({ label: name, value: name });
+});
+
 async function fetchDiscover() {
   const seq = ++state.discoverSeq;
-  const cat = DISCOVER_CATEGORIES[state.discoverCategoryIdx];
+  const cat = state.discoverCategory;
   $("#discover-title").textContent = cat.value ? `Category: ${cat.label}` : "Random Articles";
   const tbody = $("#discover-table tbody");
   $("#discover-empty").hidden = true;
@@ -859,6 +917,11 @@ async function fetchDiscover() {
     return;
   }
   for (const r of items) tbody.appendChild(buildArticleRow(r));
+}
+
+function renderDiscoverPage() {
+  renderDiscoverCategoryChips();
+  if (!state.discover.length) fetchDiscover();
 }
 
 async function renderMarket() {

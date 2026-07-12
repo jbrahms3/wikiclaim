@@ -426,6 +426,20 @@ img.thumb { border: 1px solid var(--border); }
 .pill-tabs.page-tabs { padding: 0 0 16px; }
 .pill-tabs.page-tabs .pill-tab { padding: 7px 16px; font-size: 13px; }
 
+/* ---------- Discover page ---------- */
+#discover-search-card { margin-bottom: 16px; }
+.discover-category-search { position: relative; padding: 16px 16px 10px; }
+.discover-suggestions {
+  position: absolute; left: 16px; right: 16px; top: 100%;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow); margin-top: 4px; z-index: 20; overflow: hidden;
+}
+.discover-suggestion {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  font-family: inherit; font-size: 13.5px; padding: 9px 14px; cursor: pointer; color: var(--text);
+}
+.discover-suggestion:hover, .discover-suggestion.focused { background: var(--card); }
+
 /* ---------- Activity feed ---------- */
 .feed { list-style: none; margin: 0; padding: 4px 16px 12px; }
 .feed li { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; align-items: baseline; }
