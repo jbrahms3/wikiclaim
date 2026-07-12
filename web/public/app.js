@@ -308,6 +308,7 @@ async function signInSucceeded() {
     }
     loadSecondary();
     renderRoute();
+    if (state.user.needsUsername) openUsernameModal();
   } finally {
     signingIn = false;
   }
@@ -342,6 +343,55 @@ $("#ov-signin-btn").addEventListener("click", ensureSignedIn);
 $("#points-signin-btn").addEventListener("click", ensureSignedIn);
 $("#watchlist-signin-btn").addEventListener("click", ensureSignedIn);
 $("#predictions-signin-btn").addEventListener("click", ensureSignedIn);
+
+/* ================= username modal ================= */
+// Every newly-provisioned account starts with an auto-generated placeholder
+// name and needsUsername=true - this modal is mandatory (no close button)
+// until they set a real one, right after their first sign-in.
+
+function openUsernameModal() {
+  $("#username-error").hidden = true;
+  $("#username-input").value = "";
+  $("#username-modal").hidden = false;
+  $("#username-input").focus();
+}
+
+function closeUsernameModal() {
+  $("#username-modal").hidden = true;
+}
+
+$("#username-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const username = $("#username-input").value.trim();
+  const errorEl = $("#username-error");
+  const submitBtn = $("#username-submit");
+  errorEl.hidden = true;
+
+  if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+    errorEl.textContent = "3-20 characters: letters, numbers, and underscores only.";
+    errorEl.hidden = false;
+    return;
+  }
+
+  submitBtn.disabled = true;
+  try {
+    const { user } = await api("/api/username", {
+      method: "POST",
+      body: JSON.stringify({ username }),
+    });
+    state.user = user;
+    if (state.me) state.me.user = user;
+    closeUsernameModal();
+    renderChrome();
+    renderRoute();
+    toast(`Username set to ${user.username}.`);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
 
 /* ================= data loading ================= */
 

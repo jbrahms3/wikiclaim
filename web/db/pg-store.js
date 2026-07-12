@@ -34,6 +34,7 @@ const rowToUser = (r) =>
         clerkUserId: r.clerk_user_id,
         credits: r.credits,
         createdAt: r.created_at,
+        needsUsername: r.needs_username,
       }
     : null;
 
@@ -162,6 +163,10 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       await q(
         `CREATE UNIQUE INDEX IF NOT EXISTS users_clerk_user_id_idx ON users (clerk_user_id) WHERE clerk_user_id IS NOT NULL;`
       );
+      // Newly-provisioned accounts must pick their own username instead of
+      // keeping the auto-generated one - defaults to false so existing rows
+      // aren't retroactively forced through the prompt.
+      await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS needs_username BOOLEAN NOT NULL DEFAULT false;`);
       await q(`
         CREATE TABLE IF NOT EXISTS holdings (
           id TEXT PRIMARY KEY,
@@ -318,11 +323,11 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     async createUserIfNotExists(user) {
       try {
         const { rows } = await q(
-          `INSERT INTO users (id, username, clerk_user_id, credits, created_at)
-           VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO users (id, username, clerk_user_id, credits, created_at, needs_username)
+           VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (clerk_user_id) WHERE clerk_user_id IS NOT NULL DO NOTHING
            RETURNING *`,
-          [user.id, user.username, user.clerkUserId, user.credits, user.createdAt]
+          [user.id, user.username, user.clerkUserId, user.credits, user.createdAt, !!user.needsUsername]
         );
         if (rows[0]) return { user: rowToUser(rows[0]), created: true };
         const existing = await this.findUserByClerkId(user.clerkUserId);
@@ -334,12 +339,27 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         const existing = await this.findUserByClerkId(user.clerkUserId);
         if (existing) return { user: existing, created: false };
         const { rows } = await q(
-          `INSERT INTO users (id, username, clerk_user_id, credits, created_at)
-           VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO users (id, username, clerk_user_id, credits, created_at, needs_username)
+           VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING *`,
-          [user.id, `${user.username}_${user.id.slice(-4)}`, user.clerkUserId, user.credits, user.createdAt]
+          [user.id, `${user.username}_${user.id.slice(-4)}`, user.clerkUserId, user.credits, user.createdAt, !!user.needsUsername]
         );
         return { user: rowToUser(rows[0]), created: true };
+      }
+    },
+    // Called from the mandatory post-signup username prompt. The
+    // case-insensitive unique index enforces no-collision; a 23505 here means
+    // someone else already has that exact name.
+    async setUsername(userId, username) {
+      try {
+        const { rows } = await q(
+          `UPDATE users SET username = $1, needs_username = false WHERE id = $2 RETURNING *`,
+          [username, userId]
+        );
+        return rowToUser(rows[0]);
+      } catch (err) {
+        if (err.code === "23505") return null;
+        throw err;
       }
     },
     async tryDebit(userId, amount) {

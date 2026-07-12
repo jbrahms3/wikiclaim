@@ -30,6 +30,7 @@ import {
   cancelListing,
   browseListings,
   buyListing,
+  publicUser,
 } from "./game.js";
 import {
   searchArticles,
@@ -166,6 +167,7 @@ async function resolveUserFromToken(bearerToken) {
     username: displayName,
     credits: startingCredits(),
     createdAt: Date.now(),
+    needsUsername: true,
   });
   if (created) await logEvent(user.id, "join", {});
   return user;
@@ -299,6 +301,23 @@ app.get(
     p.rank = rank || null;
     p.totalPlayers = rows.length;
     res.json(p);
+  })
+);
+
+// Mandatory post-signup step: every newly-provisioned account starts with
+// needsUsername=true and an auto-generated placeholder name (from Clerk
+// profile data or a trader_XXXXXX fallback) until they set a real one here.
+app.post(
+  "/api/username",
+  requireAuth,
+  wrap(async (req, res) => {
+    const username = String(req.body.username || "").trim();
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+      throw new Error("Username must be 3-20 characters: letters, numbers, and underscores only.");
+    }
+    const updated = await store.setUsername(req.userId, username);
+    if (!updated) throw new Error("That username is already taken.");
+    res.json({ user: publicUser(updated) });
   })
 );
 

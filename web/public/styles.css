@@ -558,6 +558,22 @@ img.thumb { border: 1px solid var(--border); }
 }
 .toast.err { border-left-color: var(--red); }
 
+/* ---------- Modal ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(16, 24, 40, 0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200; padding: 20px;
+}
+.modal-card {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 24px 60px rgba(16, 24, 40, 0.25); padding: 24px; width: 100%; max-width: 380px;
+}
+.modal-card h2 { margin: 0 0 6px; font-size: 18px; letter-spacing: -0.01em; }
+.modal-card .page-hint { margin: 0 0 16px; }
+.modal-card input { width: 100%; margin-bottom: 8px; }
+.modal-card .btn-primary { width: 100%; }
+.field-error { color: var(--red); font-size: 12.5px; margin: 0 0 10px; }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .header-stats .hstat { display: none; }

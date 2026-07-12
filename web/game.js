@@ -184,7 +184,7 @@ export async function portfolioHistory(userId, days) {
 }
 
 export function publicUser(u) {
-  return { id: u.id, username: u.username, credits: u.credits };
+  return { id: u.id, username: u.username, credits: u.credits, needsUsername: !!u.needsUsername };
 }
 
 /** Buy a page. Throws Error with a user-facing message on failure. */

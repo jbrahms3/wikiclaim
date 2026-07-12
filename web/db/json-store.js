@@ -97,6 +97,20 @@ export function createJsonStore() {
       persist();
       return { user, created: true };
     },
+    // Called from the mandatory post-signup username prompt. Synchronous
+    // check-then-write, mirroring the other atomic guards in this store.
+    async setUsername(userId, username) {
+      const taken = Object.values(db.users).some(
+        (u) => u.id !== userId && u.username.toLowerCase() === username.toLowerCase()
+      );
+      if (taken) return null;
+      const u = db.users[userId];
+      if (!u) return null;
+      u.username = username;
+      u.needsUsername = false;
+      persist();
+      return copy(u);
+    },
     // Atomically subtract `amount` iff the balance can cover it.
     // Returns the new balance, or null if funds are insufficient.
     async tryDebit(userId, amount) {

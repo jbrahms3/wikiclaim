@@ -473,6 +473,21 @@
     </section>
 
     <div id="toast" class="toast" hidden></div>
+
+    <div class="modal-overlay" id="username-modal" hidden>
+      <div class="modal-card">
+        <h2>Choose a username</h2>
+        <p class="page-hint">
+          Pick a name other traders will see on the leaderboard and secondary market.
+          This is required before you can start trading.
+        </p>
+        <form id="username-form">
+          <input id="username-input" type="text" placeholder="e.g. wiki_whale" autocomplete="off" maxlength="20" />
+          <p class="field-error" id="username-error" hidden></p>
+          <button class="btn-primary" type="submit" id="username-submit">Save username</button>
+        </form>
+      </div>
+    </div>
   </div>
   <script src="app.js"></script>
 </body>
