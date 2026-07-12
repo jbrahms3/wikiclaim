@@ -27,17 +27,20 @@ const state = {
 
 // Curated starting points for category browsing - real Wikipedia category
 // names (value: null means "Random", handled separately via /api/discover
-// with no ?category=).
+// with no ?category=). Broad umbrella categories (e.g. "Category:Sports")
+// mostly just organize subcategories and have almost no articles tagged
+// directly, so these are deliberately more specific leaf-ish categories
+// that actually hold a large pool of articles to shuffle through.
 const DISCOVER_CATEGORIES = [
   { label: "Random", value: null },
-  { label: "Science", value: "Physics" },
+  { label: "Science", value: "Chemistry" },
   { label: "Technology", value: "Technology" },
-  { label: "History", value: "History" },
-  { label: "Film & TV", value: "Film" },
-  { label: "Music", value: "Music" },
-  { label: "Video Games", value: "Video_games" },
-  { label: "Sports", value: "Sports" },
-  { label: "Geography", value: "Geography" },
+  { label: "History", value: "20th_century" },
+  { label: "Film & TV", value: "Film_genres" },
+  { label: "Music", value: "Music_genres" },
+  { label: "Video Games", value: "Video_game_genres" },
+  { label: "Sports", value: "Team_sports" },
+  { label: "Geography", value: "Landforms" },
 ];
 
 /* ================= helpers ================= */

@@ -529,17 +529,25 @@ export async function getCategoryMembers(category, limit = 30) {
       list: "categorymembers",
       cmtitle: title,
       cmnamespace: "0",
-      cmlimit: String(limit),
+      cmlimit: "500", // max allowed for anonymous requests - draw our sample from this whole pool
       format: "json",
       origin: "*",
     });
   const res = await fetch(url, { headers: { "User-Agent": UA } });
   if (!res.ok) throw new Error(`Categorymembers API ${res.status}`);
   const data = await res.json();
-  return (data.query?.categorymembers || []).map((r) => ({
+  const members = (data.query?.categorymembers || []).map((r) => ({
     title: r.title,
     article: r.title.replace(/ /g, "_"),
   }));
+  // The API always returns members in the same fixed (alphabetical) order,
+  // so without shuffling, every fetch - and every "Shuffle" click - would
+  // show the exact same first N articles. Sample randomly from the pool.
+  for (let i = members.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [members[i], members[j]] = [members[j], members[i]];
+  }
+  return members.slice(0, limit);
 }
 
 // The search API returns snippets with HTML entities (&quot;, &#039; ...).
