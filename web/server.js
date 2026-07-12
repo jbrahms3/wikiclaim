@@ -147,14 +147,14 @@ async function resolveUserFromToken(bearerToken) {
     console.error("Failed to fetch Clerk profile for", clerkUserId, err);
   }
 
-  const user = await store.createUser({
+  const { user, created } = await store.createUserIfNotExists({
     id: uid(),
     clerkUserId,
     username: displayName,
     credits: startingCredits(),
     createdAt: Date.now(),
   });
-  await logEvent(user.id, "join", {});
+  if (created) await logEvent(user.id, "join", {});
   return user;
 }
 

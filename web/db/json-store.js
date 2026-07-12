@@ -87,6 +87,16 @@ export function createJsonStore() {
       persist();
       return user;
     },
+    // Atomic JIT-provisioning guard, mirroring pg-store's version: fully
+    // synchronous with no await between the check and the write, so nothing
+    // can interleave.
+    async createUserIfNotExists(user) {
+      const existing = Object.values(db.users).find((u) => u.clerkUserId === user.clerkUserId);
+      if (existing) return { user: copy(existing), created: false };
+      db.users[user.id] = user;
+      persist();
+      return { user, created: true };
+    },
     // Atomically subtract `amount` iff the balance can cover it.
     // Returns the new balance, or null if funds are insufficient.
     async tryDebit(userId, amount) {

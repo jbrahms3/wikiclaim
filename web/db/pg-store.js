@@ -311,6 +311,37 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       );
       return user;
     },
+    // Atomic JIT-provisioning guard: concurrent first-sign-in requests for the
+    // same Clerk user race to create the internal record. ON CONFLICT on
+    // clerk_user_id means only one insert wins; the rest get the winner back
+    // instead of hitting a duplicate-username error.
+    async createUserIfNotExists(user) {
+      try {
+        const { rows } = await q(
+          `INSERT INTO users (id, username, clerk_user_id, credits, created_at)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (clerk_user_id) WHERE clerk_user_id IS NOT NULL DO NOTHING
+           RETURNING *`,
+          [user.id, user.username, user.clerkUserId, user.credits, user.createdAt]
+        );
+        if (rows[0]) return { user: rowToUser(rows[0]), created: true };
+        const existing = await this.findUserByClerkId(user.clerkUserId);
+        return { user: existing, created: false };
+      } catch (err) {
+        if (err.code !== "23505") throw err;
+        // Not the clerk_user_id race - a different user already has this
+        // exact generated username. Disambiguate and retry once.
+        const existing = await this.findUserByClerkId(user.clerkUserId);
+        if (existing) return { user: existing, created: false };
+        const { rows } = await q(
+          `INSERT INTO users (id, username, clerk_user_id, credits, created_at)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING *`,
+          [user.id, `${user.username}_${user.id.slice(-4)}`, user.clerkUserId, user.credits, user.createdAt]
+        );
+        return { user: rowToUser(rows[0]), created: true };
+      }
+    },
     async tryDebit(userId, amount) {
       const { rows } = await q(
         `UPDATE users SET credits = credits - $2
