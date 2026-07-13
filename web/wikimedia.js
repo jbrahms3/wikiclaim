@@ -220,18 +220,13 @@ async function fetchAndCachePrice(key, project, article) {
   const pendingLatest = views.size > 0 && rawLatest == null;
   const latestViews = views.size > 0 ? rawLatest ?? Math.round(premiumAvg) : 0;
 
-  // Three ways to express "change", all comparing the latest day against a
-  // different baseline. changePct (daily, vs. yesterday) is the default the
-  // UI shows; changePct30d/changePctYear are offered as a toggle for anyone
-  // who wants the smoothed view instead. null (not 0) when there's no real
-  // baseline to compare against yet.
-  const prevDayViews = views.get(formatYYYYMMDD(addDaysUTC(end, -1)));
-  const pctVs = (baseline) =>
-    !pendingLatest && baseline > 0 ? ((latestViews - baseline) / baseline) * 100 : null;
-  const round1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
-  const changePct = round1(pctVs(prevDayViews || 0));
-  const changePct30d = round1(pctVs(premiumAvg));
-  const changePctYear = round1(pctVs(avgViews));
+  // "Change" = today vs. yesterday. null (not 0) when there's no real
+  // "today" (or "yesterday") to compare against yet.
+  const prevDayViews = views.get(formatYYYYMMDD(addDaysUTC(end, -1))) || 0;
+  const changePct =
+    !pendingLatest && prevDayViews > 0
+      ? Math.round(((latestViews - prevDayViews) / prevDayViews) * 1000) / 10
+      : null;
 
   // Last 7 available days, oldest first — free sparkline data from the same fetch.
   const spark = [];
@@ -247,8 +242,6 @@ async function fetchAndCachePrice(key, project, article) {
     premium,
     latestViews,
     changePct,
-    changePct30d,
-    changePctYear,
     pendingLatest,
     spark,
     windowDays: YEAR_WINDOW_DAYS,
@@ -459,8 +452,6 @@ export async function getTrending(limit = 10) {
           rank,
           price: p.annualPrice,
           changePct: p.changePct,
-          changePct30d: p.changePct30d,
-          changePctYear: p.changePctYear,
           pendingLatest: p.pendingLatest,
           latestViews: p.latestViews,
           spark: p.spark || null,

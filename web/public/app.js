@@ -24,21 +24,7 @@ const state = {
   moversTab: "trending",
   marketTab: "primary",
   chartSeq: 0,
-  changeBasis: "daily", // "daily" | "30d" | "year" - which baseline the Change % columns compare against
 };
-
-// Field name + labels for each change-% baseline an item carries.
-const CHANGE_BASIS = {
-  daily: { field: "changePct", short: "1D", suffix: "vs yesterday", statLabel: "Vs yesterday" },
-  "30d": { field: "changePct30d", short: "30D", suffix: "vs 30-day avg", statLabel: "Vs 30-day avg" },
-  year: { field: "changePctYear", short: "1Y", suffix: "vs yearly avg", statLabel: "Vs yearly avg" },
-};
-
-// Every priced item carries all three change-% figures already (no extra
-// fetch needed) - this just picks the one matching the current toggle.
-function pickChangePct(item) {
-  return item[CHANGE_BASIS[state.changeBasis].field];
-}
 
 // Curated starting points for category browsing - real Wikipedia category
 // names (value: null means "Random", handled separately via /api/discover
@@ -557,30 +543,6 @@ $("#search-form").addEventListener("submit", (e) => {
   location.hash = `#/market?q=${encodeURIComponent(q)}`;
 });
 
-/* ================= change-basis toggle ================= */
-
-function updateChangeHeaders() {
-  const label = `Change (${CHANGE_BASIS[state.changeBasis].short})`;
-  for (const id of ["market-change-th", "discover-change-th", "watchlist-change-th", "holdings-change-th"]) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = label;
-  }
-}
-updateChangeHeaders();
-
-$("#change-basis-toggle").addEventListener("click", (e) => {
-  const btn = e.target.closest(".cb-opt");
-  if (!btn || btn.classList.contains("active")) return;
-  state.changeBasis = btn.dataset.basis;
-  $("#change-basis-toggle").querySelectorAll(".cb-opt").forEach((b) =>
-    b.classList.toggle("active", b === btn)
-  );
-  updateChangeHeaders();
-  // Every item already carries all three change-% figures - just re-render
-  // whatever's currently showing with the new one, no re-fetch needed.
-  renderRoute();
-});
-
 /* ================= overview ================= */
 
 function renderOverview() {
@@ -643,8 +605,8 @@ function renderHoldingsTable() {
       <td class="num">${fmt(h.currentPrice)}</td>
       <td class="num">${h.latestViews == null ? "—" : fmt(h.latestViews)}</td>
       <td class="num pos">+${fmt(h.totalEarned)}</td>
-      <td>${badgeHtml(pickChangePct(h), h.pendingLatest)}</td>
-      <td>${sparkSvg(h.spark, pickChangePct(h))}</td>
+      <td>${badgeHtml(h.changePct, h.pendingLatest)}</td>
+      <td>${sparkSvg(h.spark, h.changePct)}</td>
       <td class="holding-actions"></td>`;
     const actionsTd = tr.querySelector(".holding-actions");
     if (h.listing) {
@@ -702,11 +664,10 @@ $("#ov-ranges").addEventListener("click", (e) => {
 
 function miniRow(item) {
   const li = document.createElement("li");
-  const cp = pickChangePct(item);
-  const up = (cp || 0) >= 0;
+  const up = (item.changePct || 0) >= 0;
   const changeHtml = item.pendingLatest
     ? `<div class="mini-change">${resultsInText()}</div>`
-    : `<div class="mini-change ${up ? "pos" : "neg"}">${up ? "+" : ""}${cp ?? 0}%</div>`;
+    : `<div class="mini-change ${up ? "pos" : "neg"}">${up ? "+" : ""}${item.changePct ?? 0}%</div>`;
   li.innerHTML = `
     ${thumbHtml(item)}
     <div class="mini-main">
@@ -742,7 +703,7 @@ function renderMovers() {
   // No "losers" tab: Wikimedia's pageviews API has no top-decliners metric,
   // and computing real ones would mean diffing per-article time series
   // across a huge swath of Wikipedia - not feasible from this candidate pool.
-  if (state.moversTab === "gainers") items.sort((a, b) => (pickChangePct(b) || 0) - (pickChangePct(a) || 0));
+  if (state.moversTab === "gainers") items.sort((a, b) => (b.changePct || 0) - (a.changePct || 0));
   else items.sort((a, b) => (b.price || 0) - (a.price || 0));
   if (!items.length) {
     ul.innerHTML = `<li class="empty">Loading market data…</li>`;
@@ -1075,8 +1036,8 @@ function buildArticleRow(r) {
     </td>
     <td class="num">${r.price == null ? "—" : fmt(r.price)}</td>
     <td class="num">${r.latestViews == null ? "—" : fmt(r.latestViews)}</td>
-    <td>${badgeHtml(pickChangePct(r), r.pendingLatest)}</td>
-    <td>${sparkSvg(r.spark, pickChangePct(r))}</td>
+    <td>${badgeHtml(r.changePct, r.pendingLatest)}</td>
+    <td>${sparkSvg(r.spark, r.changePct)}</td>
     <td><button class="btn-primary btn-sm"></button></td>`;
   const btn = tr.querySelector("button");
   // Ownership is exclusive - "Claim" only makes sense for genuinely
@@ -1197,8 +1158,8 @@ function renderWatchlistPage() {
         </div>
       </td>
       <td class="num">${w.price == null ? "—" : fmt(w.price)}</td>
-      <td>${badgeHtml(pickChangePct(w), w.pendingLatest)}</td>
-      <td>${sparkSvg(w.spark, pickChangePct(w))}</td>
+      <td>${badgeHtml(w.changePct, w.pendingLatest)}</td>
+      <td>${sparkSvg(w.spark, w.changePct)}</td>
       <td><button class="btn-ghost btn-sm">Unwatch</button></td>`;
     tr.querySelector("button").addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -1343,17 +1304,16 @@ async function renderArticlePage(article) {
       onerror="this.style.visibility='hidden'" />`;
   }
   const changeEl = $("#det-change");
-  const detCp = pickChangePct(d);
   if (d.pendingLatest) {
     changeEl.className = "badge pending";
     changeEl.textContent = resultsInText();
-  } else if (detCp == null) {
+  } else if (d.changePct == null) {
     changeEl.className = "badge";
     changeEl.textContent = "";
   } else {
-    const up = detCp >= 0;
+    const up = d.changePct >= 0;
     changeEl.className = `badge ${up ? "up" : "down"}`;
-    changeEl.textContent = `${up ? "▲" : "▼"} ${Math.abs(detCp)}% ${CHANGE_BASIS[state.changeBasis].suffix}`;
+    changeEl.textContent = `${up ? "▲" : "▼"} ${Math.abs(d.changePct)}% vs yesterday`;
   }
 
   $("#det-wiki").href = d.url;
@@ -1444,11 +1404,10 @@ function renderDetailActions() {
 
 function renderDetailStats() {
   const d = state.detail;
-  const detCp = pickChangePct(d);
   const rows = [
     ["Market price", d.price == null ? "—" : `${fmt(d.price)} pts`],
     ["Views (last day)", d.latestViews == null ? "—" : fmt(d.latestViews)],
-    [CHANGE_BASIS[state.changeBasis].statLabel, d.pendingLatest ? resultsInText() : detCp == null ? "—" : `${detCp >= 0 ? "+" : ""}${detCp}%`],
+    ["Vs yesterday", d.pendingLatest ? resultsInText() : d.changePct == null ? "—" : `${d.changePct >= 0 ? "+" : ""}${d.changePct}%`],
     ["Status", d.holding
       ? "In your portfolio"
       : d.owned
