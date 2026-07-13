@@ -295,47 +295,15 @@ export async function pointsSummary(userId) {
   return { credits: user.credits, goal: POINTS_GOAL, history };
 }
 
-/** Sell a page back to the market at its current price. */
-export async function sellPage(userId, holdingId) {
-  const holding = await store.getHolding(holdingId);
-  if (!holding || holding.userId !== userId) {
-    throw new Error("You don't own that page.");
-  }
-  // Force a live check, same as buying - selling off a stale cached price
-  // (up to 6h old) could pay out more or less than the article is really
-  // worth right now if its traffic moved since the cache was last refreshed.
-  const price = await getPagePrice(holding.project, holding.article, { force: true });
-  if (price.unpriced) {
-    throw new Error(
-      "Couldn't price this page right now (no data from Wikimedia). Try again in a few seconds."
-    );
-  }
-  const proceeds = price.annualPrice;
-
-  // Remove first, then credit — so a double-click can't sell the same page twice.
-  await store.deleteHolding(holdingId);
-  // Clean up any active secondary-market listing for this holding, if
-  // present - an instant sell bypasses it, and a listing pointing at a
-  // holding that no longer exists would be a dangling, unbuyable ghost.
-  await store.claimListing(holdingId);
-  const creditsLeft = await store.addCredits(userId, proceeds);
-  await logEvent(userId, "sell", {
-    article: holding.article,
-    displayTitle: holding.displayTitle,
-    amount: proceeds,
-  });
-
-  return { proceeds, creditsLeft };
-}
-
 /**
  * Secondary market: since ownership is exclusive (one owner per article at a
  * time, see buyPage), once someone owns an article the only way anyone else
- * gets it is to buy it from them. An owner can list their holding at any
- * price they choose; unlike the primary market (buying sinks credits, the
- * instant "Sell" prints them) a resale is a genuine peer-to-peer transfer -
- * the buyer's payment goes directly to the seller, creating or destroying no
- * points. A listing's id is always its holding's id (one listing per holding).
+ * gets it is to buy it from them - there's no instant sell-back to the
+ * market. An owner can list their holding at any price they choose; a resale
+ * is a genuine peer-to-peer transfer - the buyer's payment goes directly to
+ * the seller, creating or destroying no points (unlike an instant sell,
+ * which would print credits from nowhere). A listing's id is always its
+ * holding's id (one listing per holding).
  */
 const MIN_ASK_PRICE = 1;
 

@@ -624,13 +624,8 @@ function renderHoldingsTable() {
         cancelListingAction(h.id, h.displayTitle);
       });
     } else {
-      actionsTd.innerHTML = `<button class="btn-ghost btn-sm">Sell</button><button class="btn-ghost btn-sm">List</button>`;
-      const [sellBtn, listBtn] = actionsTd.querySelectorAll("button");
-      sellBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        sell(h.id, h.displayTitle);
-      });
-      listBtn.addEventListener("click", (e) => {
+      actionsTd.innerHTML = `<button class="btn-ghost btn-sm">List</button>`;
+      actionsTd.querySelector("button").addEventListener("click", (e) => {
         e.stopPropagation();
         listHolding(h.id, h.displayTitle, h.currentPrice);
       });
@@ -1376,26 +1371,19 @@ function renderDetailActions() {
   const d = state.detail;
   if (!d) return;
   const actionBtn = $("#det-action");
-  const listBtn = $("#det-list-btn");
   const watchBtn = $("#det-watch");
-  listBtn.hidden = true;
 
   if (d.holding) {
-    // Ownership is exclusive, but instant "Sell" and listing on the
-    // secondary market are independent options for an owner either way.
-    actionBtn.textContent = d.price == null
-      ? `Sell for ${fmt(d.holding.purchasePrice)} pts (last known price)`
-      : `Sell for ${fmt(d.price)} pts`;
-    actionBtn.disabled = false;
-    actionBtn.onclick = () => sell(d.holding.id, d.displayTitle);
-
-    listBtn.hidden = false;
+    // No instant sell-back to the market - the only way to give up an
+    // article is to list it and wait for another player to buy it.
     if (d.listing) {
-      listBtn.textContent = `Cancel Listing (asked ${fmt(d.listing.askPrice)})`;
-      listBtn.onclick = () => cancelListingAction(d.listing.id, d.displayTitle);
+      actionBtn.textContent = `Cancel Listing (asked ${fmt(d.listing.askPrice)})`;
+      actionBtn.disabled = false;
+      actionBtn.onclick = () => cancelListingAction(d.listing.id, d.displayTitle);
     } else {
-      listBtn.textContent = "List for Sale";
-      listBtn.onclick = () => listHolding(d.holding.id, d.displayTitle, d.price ?? d.holding.purchasePrice);
+      actionBtn.textContent = "List";
+      actionBtn.disabled = false;
+      actionBtn.onclick = () => listHolding(d.holding.id, d.displayTitle, d.price ?? d.holding.purchasePrice);
     }
   } else if (d.owned && d.listing) {
     const affordable = !state.user || state.me.user.credits >= d.listing.askPrice;
@@ -1529,25 +1517,6 @@ async function buy(r, btn) {
       btn.disabled = false;
       btn.textContent = "Claim";
     }
-  }
-}
-
-async function sell(holdingId, title) {
-  if (!ensureSignedIn()) return;
-  try {
-    const res = await api("/api/sell", {
-      method: "POST",
-      body: JSON.stringify({ holdingId }),
-    });
-    toast(`Sold "${title}" for ${fmt(res.proceeds)} pts.`);
-    await refreshAfterTrade();
-    if (state.route.page === "article" && state.detail) {
-      renderArticlePage(state.detail.article);
-    } else {
-      renderRoute();
-    }
-  } catch (err) {
-    toast(err.message, true);
   }
 }
 

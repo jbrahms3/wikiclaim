@@ -19,7 +19,6 @@ import {
   portfolio,
   portfolioHistory,
   buyPage,
-  sellPage,
   leaderboard,
   recentActivity,
   logEvent,
@@ -523,16 +522,6 @@ app.post(
       displayTitle,
       lang: "en",
     });
-    res.json({ ...result, portfolio: await portfolio(req.userId) });
-  })
-);
-
-app.post(
-  "/api/sell",
-  requireAuth,
-  forcedFetchLimiter,
-  wrap(async (req, res) => {
-    const result = await sellPage(req.userId, String(req.body.holdingId || ""));
     res.json({ ...result, portfolio: await portfolio(req.userId) });
   })
 );

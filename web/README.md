@@ -8,8 +8,8 @@ and earnings both come from the live
 [Wikimedia Pageviews API](https://wikimedia.org/api/rest_v1/#/Pageviews%20data).
 
 Everyone starts with **5,000 credits**. Buy pages you think are undervalued (or
-about to spike), collect their daily views as income, sell when you like, and
-climb the shared net-worth leaderboard.
+about to spike), collect their daily views as income, list them for resale
+when you're ready to move on, and climb the shared net-worth leaderboard.
 
 ## The rules
 
@@ -30,13 +30,11 @@ climb the shared net-worth leaderboard.
   data with about a 1-day lag, so today's earnings show up tomorrow. A page
   owned for N days earns exactly N days of real traffic, and it works even if
   the server was offline.
-- **Selling** returns the page's *current* computed price to your credits
-  instantly. Prices move as real-world traffic changes, so a page can be
-  worth more or less than you paid.
-- **Secondary market**: list an owned page at any price you choose instead
-  of selling instantly. Unlike buying (credits sink) or instant-selling
-  (credits are printed), a resale is a genuine peer-to-peer trade — the
-  buyer's payment goes straight to you. The buyer becomes the new owner and
+- **There's no instant sell-back to the market.** The only way to give up a
+  page is to list it on the **secondary market** at any price you choose and
+  wait for another player to buy it. Unlike buying (credits sink), a resale
+  is a genuine peer-to-peer trade — the buyer's payment goes straight to you,
+  creating or destroying no credits. The buyer becomes the new owner and
   starts earning fresh from the day they buy.
 - **Net worth** = credits + current value of all your pages. The leaderboard
   ranks everyone by net worth.
@@ -73,7 +71,7 @@ Sign-up/sign-in is handled entirely by [Clerk](https://clerk.com) — this app
 has no password storage of its own. **Browsing requires no account at all** —
 the Market (both tabs), article detail pages, search, leaderboard, and
 activity feed are all public. Signing in is only prompted on demand, the
-moment you try to buy, sell, list/cancel/buy on the secondary market, place a
+moment you try to buy, list/cancel/buy on the secondary market, place a
 prediction, or watch an article; every one of those routes also verifies the
 request server-side, not just the UI, so this isn't just a client-side gate.
 
@@ -148,7 +146,7 @@ server boots, serves the SPA and API, and the healthcheck path returns 200.
 No native dependencies beyond `pg`, so it installs cleanly on any platform.
 
 - `server.js` — Express app: static hosting, JSON API, Clerk token verification.
-- `game.js` — game rules: buying, selling, per-day settlement, portfolio,
+- `game.js` — game rules: buying, secondary-market resale, per-day settlement, portfolio,
   leaderboard. Uses atomic credit updates and a compare-and-set on settlement
   so concurrent requests can't double-credit.
 - `wikimedia.js` — Wikipedia article search + pricing + daily pageview fetch.
@@ -168,7 +166,6 @@ entirely handled by Clerk's widget on the frontend.
 | GET    | `/api/me`          | Portfolio + settle earnings; JIT-provisions the account on first call; `{user: null}` when signed out |
 | GET    | `/api/search?q=`   | Search articles, priced (public)          |
 | POST   | `/api/buy`         | Buy a page (auth)                         |
-| POST   | `/api/sell`        | Sell a page (auth)                        |
 | GET    | `/api/leaderboard` | Net-worth ranking                         |
 | GET    | `/api/trending`    | Curated list of high-traffic articles     |
 | GET    | `/api/categories`  | Category indexes (baskets of articles) for the ticker |
@@ -178,7 +175,7 @@ entirely handled by Clerk's widget on the frontend.
 | GET    | `/api/watchlist`   | Your watchlist, priced (auth)             |
 | POST   | `/api/watchlist/toggle` | Watch/unwatch an article (auth)      |
 | POST   | `/api/reprice`     | Force a fresh price check for one article (public - busts a shared cache, not user data) |
-| GET    | `/api/activity`    | Recent market events (claims, sells, joins, predictions) |
+| GET    | `/api/activity`    | Recent market events (claims, resales, joins, predictions) |
 | POST   | `/api/bet`         | Place a 24h up/down daily-views prediction (auth) |
 | GET    | `/api/bets`        | Your open (settles due ones first) + resolved predictions (auth) |
 | GET    | `/api/listings`    | Active secondary-market listings, with the current computed price for comparison |
