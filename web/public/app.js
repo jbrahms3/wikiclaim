@@ -424,6 +424,11 @@ function loadSecondary() {
       state.bets = { open, resolved };
       if (state.route.page === "predictions") renderPredictionsPage();
       if (state.route.page === "article") renderDetOpenBets();
+      // Checking bets can lazily resolve one server-side (a payout lands the
+      // moment its target day's data is available, see game.js) - refresh
+      // the displayed balance so it doesn't sit stale until some other
+      // action happens to re-fetch /api/me.
+      loadMe();
     }).catch(() => {});
   } else {
     state.watchlist = [];
@@ -819,6 +824,14 @@ async function renderPointsPage() {
 
   $("#pts-balance").textContent = fmt(data.credits);
   updateProgressBar(data.credits, data.goal);
+  // /api/points can lazily settle holdings/bets server-side (see
+  // pointsSummary in game.js) - keep the sidebar/header balance in sync
+  // instead of leaving it at whatever /api/me last returned.
+  if (state.me && state.me.user.credits !== data.credits) {
+    state.me.user.credits = data.credits;
+    state.user.credits = data.credits;
+    renderChrome();
+  }
 
   const series = bucketEarningsByDay(data.history);
   const total = series.reduce((s, d) => s + d.views, 0);

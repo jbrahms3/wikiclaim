@@ -101,6 +101,7 @@ export async function settleUser(userId) {
  */
 export async function portfolio(userId) {
   await settleUser(userId);
+  await settleBets(userId);
   const user = await store.getUser(userId);
   const holdings = await store.holdingsForUser(userId);
   // A listing's id is its holding's id, so this naturally only matches
@@ -287,6 +288,8 @@ export async function earningsHistory(userId, limit = 100) {
 
 /** Balance + progress-to-goal + earnings history for the Points page. */
 export async function pointsSummary(userId) {
+  await settleUser(userId);
+  await settleBets(userId);
   const user = await store.getUser(userId);
   const history = await earningsHistory(userId);
   return { credits: user.credits, goal: POINTS_GOAL, history };
