@@ -240,6 +240,7 @@ function renderAuthChrome() {
   $("#hdr-today-stat").hidden = !signedIn;
   $("#hdr-profile").hidden = !signedIn;
   $("#hdr-signin-btn").hidden = signedIn;
+  $("#sidebar-profile").hidden = !signedIn;
   $("#sidebar-points-card").hidden = !signedIn;
   $("#logout-btn").hidden = !signedIn;
   $("#sidebar-signedout-card").hidden = signedIn;
@@ -448,6 +449,8 @@ function renderChrome() {
   $("#hdr-today").textContent = `+${fmt(me.todayEarnings)}`;
   $("#hdr-username").textContent = me.user.username;
   $("#hdr-avatar").textContent = initials(me.user.username);
+  $("#side-username").textContent = me.user.username;
+  $("#side-avatar").textContent = initials(me.user.username);
 }
 
 function renderTicker() {

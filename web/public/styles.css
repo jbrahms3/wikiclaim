@@ -238,6 +238,7 @@ a.side-card:hover { border-color: var(--accent); }
 .hstat-value { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
 .profile { display: flex; align-items: center; gap: 9px; padding-left: 18px; border-left: 1px solid var(--border); }
 .profile-name { font-weight: 600; font-size: 13.5px; }
+.side-profile { display: flex; align-items: center; gap: 10px; padding: 2px 4px 4px; }
 .avatar {
   width: 32px; height: 32px; border-radius: 50%;
   background: var(--accent-soft); color: var(--accent);
@@ -420,11 +421,17 @@ img.thumb { border: 1px solid var(--border); }
 .mini-change { font-size: 11.5px; font-weight: 700; }
 .mini-list .empty { padding: 6px 8px 10px; }
 
-.pill-tabs { display: flex; gap: 5px; padding: 0 16px 10px; }
+/* overflow-x: auto - a long list of pills (e.g. Discover's category chips)
+   scrolls horizontally within its own bounds instead of stretching the page. */
+.pill-tabs {
+  display: flex; gap: 5px; padding: 0 16px 10px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
 .pill-tab {
   border: 1px solid var(--border); background: var(--bg); color: var(--muted);
   font-family: inherit; font-weight: 600; font-size: 11.5px;
   padding: 4px 10px; border-radius: 999px; cursor: pointer;
+  flex-shrink: 0;
 }
 .pill-tab.active { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 /* Standalone use directly on a page (not inside a card) - flush with the
@@ -572,6 +579,9 @@ img.thumb { border: 1px solid var(--border); }
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .header-stats .hstat { display: none; }
+  /* Account info (avatar/name, sign-in) moves into the hamburger drawer via
+     #sidebar-profile / #sidebar-signin-btn - not enough header room for both. */
+  .header-stats .profile, #hdr-signin-btn { display: none; }
   .mobile-menu-btn { display: inline-flex; }
   .header { padding: 12px 14px; gap: 10px; }
   .pages { padding: 16px 14px 32px; }
