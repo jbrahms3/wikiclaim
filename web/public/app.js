@@ -977,17 +977,27 @@ async function fetchDiscover() {
   if (seq !== state.discoverSeq) return;
 
   state.discover = items;
+  renderDiscoverTable();
+}
+
+// Rebuilds the table from state.discover (no network call) - split out from
+// fetchDiscover so renderDiscoverPage can refresh already-loaded rows (e.g.
+// after a successful claim) without re-fetching from Wikimedia every time.
+function renderDiscoverTable() {
+  const tbody = $("#discover-table tbody");
   tbody.innerHTML = "";
-  if (!items.length) {
+  if (!state.discover.length) {
     $("#discover-empty").hidden = false;
     return;
   }
-  for (const r of items) tbody.appendChild(buildArticleRow(r));
+  $("#discover-empty").hidden = true;
+  for (const r of state.discover) tbody.appendChild(buildArticleRow(r));
 }
 
 function renderDiscoverPage() {
   renderDiscoverCategoryChips();
-  if (!state.discover.length) fetchDiscover();
+  if (state.discover.length) renderDiscoverTable();
+  else fetchDiscover();
 }
 
 async function renderMarket() {
@@ -1479,6 +1489,21 @@ $("#det-ranges").addEventListener("click", (e) => {
 
 /* ================= actions ================= */
 
+// Any cached list (trending, discover, watchlist) can still hold a
+// just-bought article with stale ownership fields - patch it in place so a
+// re-render from cache (no re-fetch) shows "Owned" instead of a fresh,
+// wrongly-enabled "Claim" button.
+function markOwnedInCachedLists(article) {
+  for (const list of [state.trending, state.discover, state.watchlist]) {
+    const item = list.find((x) => x.article === article);
+    if (item) {
+      item.owned = true;
+      item.ownedByMe = true;
+      item.listing = null;
+    }
+  }
+}
+
 async function buy(r, btn) {
   if (!ensureSignedIn()) return;
   if (btn) {
@@ -1491,6 +1516,7 @@ async function buy(r, btn) {
       body: JSON.stringify({ article: r.article, displayTitle: r.title }),
     });
     toast(`Claimed "${r.title}" for ${fmt(res.cost)} pts.`);
+    markOwnedInCachedLists(r.article);
     await refreshAfterTrade();
     if (state.route.page === "article" && state.detail?.article === r.article) {
       renderArticlePage(r.article);
