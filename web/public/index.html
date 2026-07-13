@@ -490,6 +490,21 @@
         </form>
       </div>
     </div>
+
+    <div class="modal-overlay" id="list-price-modal" hidden>
+      <div class="modal-card">
+        <h2>List for sale</h2>
+        <p class="page-hint" id="list-price-hint"></p>
+        <form id="list-price-form">
+          <input id="list-price-input" type="number" min="1" step="1" placeholder="Asking price" autocomplete="off" />
+          <p class="field-error" id="list-price-error" hidden></p>
+          <div class="modal-actions">
+            <button class="btn-ghost" type="button" id="list-price-cancel">Cancel</button>
+            <button class="btn-primary" type="submit" id="list-price-submit">List for Sale</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
   <script src="app.js"></script>
 </body>

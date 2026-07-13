@@ -1551,23 +1551,54 @@ async function sell(holdingId, title) {
   }
 }
 
-async function listHolding(holdingId, title, currentMarketPrice) {
-  if (!ensureSignedIn()) return;
-  const input = prompt(
-    `List "${title}" for sale on the secondary market.\nCurrent market price: ${fmt(currentMarketPrice)} pts.\nEnter your asking price:`,
-    String(currentMarketPrice)
-  );
-  if (input == null) return; // cancelled
-  const askPrice = Number(input);
+/* ================= list-price modal ================= */
+// Replaces a native prompt() with an in-app modal for choosing an asking
+// price when listing a held article for resale.
+
+let pendingListing = null; // { holdingId, title } while the modal is open
+
+function openListPriceModal(holdingId, title, currentMarketPrice) {
+  pendingListing = { holdingId, title };
+  $("#list-price-hint").textContent =
+    `List "${title}" for sale on the secondary market. Current market price: ${fmt(currentMarketPrice)} pts.`;
+  $("#list-price-input").value = String(Math.round(currentMarketPrice));
+  $("#list-price-error").hidden = true;
+  $("#list-price-modal").hidden = false;
+  $("#list-price-input").focus();
+}
+
+function closeListPriceModal() {
+  $("#list-price-modal").hidden = true;
+  pendingListing = null;
+}
+
+$("#list-price-cancel").addEventListener("click", closeListPriceModal);
+$("#list-price-modal").addEventListener("click", (e) => {
+  if (e.target.id === "list-price-modal") closeListPriceModal(); // click on the backdrop
+});
+
+$("#list-price-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!pendingListing) return;
+  const { holdingId, title } = pendingListing;
+  const errorEl = $("#list-price-error");
+  const submitBtn = $("#list-price-submit");
+  errorEl.hidden = true;
+
+  const askPrice = Number($("#list-price-input").value);
   if (!Number.isFinite(askPrice) || askPrice < 1) {
-    toast("Enter a valid asking price.", true);
+    errorEl.textContent = "Enter a valid asking price.";
+    errorEl.hidden = false;
     return;
   }
+
+  submitBtn.disabled = true;
   try {
     const res = await api("/api/listings", {
       method: "POST",
       body: JSON.stringify({ holdingId, askPrice }),
     });
+    closeListPriceModal();
     toast(`Listed "${title}" for ${fmt(res.listing.askPrice)} pts.`);
     await refreshAfterTrade();
     if (state.route.page === "article" && state.detail) {
@@ -1576,8 +1607,16 @@ async function listHolding(holdingId, title, currentMarketPrice) {
       renderRoute();
     }
   } catch (err) {
-    toast(err.message, true);
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  } finally {
+    submitBtn.disabled = false;
   }
+});
+
+async function listHolding(holdingId, title, currentMarketPrice) {
+  if (!ensureSignedIn()) return;
+  openListPriceModal(holdingId, title, currentMarketPrice);
 }
 
 async function cancelListingAction(listingId, title) {

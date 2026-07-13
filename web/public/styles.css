@@ -575,6 +575,8 @@ img.thumb { border: 1px solid var(--border); }
 .modal-card input { width: 100%; margin-bottom: 8px; }
 .modal-card .btn-primary { width: 100%; }
 .field-error { color: var(--red); font-size: 12.5px; margin: 0 0 10px; }
+.modal-actions { display: flex; gap: 10px; }
+.modal-actions .btn-primary, .modal-actions .btn-ghost { flex: 1; width: auto; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
