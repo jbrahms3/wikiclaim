@@ -55,7 +55,7 @@ const withPageviewsLimit = createLimiter(4);
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
-function formatYYYYMMDD(d) {
+export function formatYYYYMMDD(d) {
   return `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}`;
 }
 export function todayUTC() {

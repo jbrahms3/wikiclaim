@@ -13,6 +13,7 @@ import {
   latestAvailableDate,
   addDaysUTC,
   parseDate,
+  formatYYYYMMDD,
 } from "./wikimedia.js";
 
 // Price = yearly daily-view average + a recency premium (last 30 days'
@@ -527,6 +528,12 @@ export async function placeBet(userId, { project, article, displayTitle, directi
     );
   }
   const startViews = Math.max(1, price.latestViews);
+  // startViews came from latestAvailableDate() (Wikimedia's ~1-day publish
+  // lag means that's always "yesterday", already final by the time we can
+  // read it) - the bet is really "will the NEXT day's views be higher or
+  // lower", so targetDate is the specific calendar day whose figure settles
+  // it, not just "24 hours from now".
+  const targetDate = formatYYYYMMDD(addDaysUTC(latestAvailableDate(), 1));
 
   const creditsLeft = await store.tryDebit(userId, stake);
   if (creditsLeft === null) {
@@ -546,8 +553,9 @@ export async function placeBet(userId, { project, article, displayTitle, directi
     direction,
     stake,
     startViews,
+    targetDate,
     placedAt: now,
-    resolvesAt: now + BET_DURATION_MS,
+    resolvesAt: now + BET_DURATION_MS, // kept as a display estimate - actual resolution can land earlier
     status: "open",
     endViews: null,
     payout: null,
@@ -558,37 +566,57 @@ export async function placeBet(userId, { project, article, displayTitle, directi
   return { bet, creditsLeft };
 }
 
-// How much longer past the 24h resolution window to keep waiting for a real
-// published day's figure before giving up and refunding the stake instead.
+// How much longer past the normal resolution estimate to keep waiting for a
+// real published day's figure before giving up and refunding the stake instead.
 const RESOLUTION_GRACE_MS = 24 * 60 * 60 * 1000;
 
+// Bets placed before targetDate existed have no way to know which specific
+// day they're settling against - fall back to the old assumption (the day
+// the bet was placed, UTC), which is what targetDate would have computed
+// to anyway (see placeBet).
+function targetDateFor(bet) {
+  if (bet.targetDate) return bet.targetDate;
+  const placed = new Date(bet.placedAt);
+  return formatYYYYMMDD(new Date(Date.UTC(placed.getUTCFullYear(), placed.getUTCMonth(), placed.getUTCDate())));
+}
+
 /**
- * Resolve one bet if its window has passed. Payout scales with the real
- * % move in daily views: guess the direction right and get more than your
- * stake back, wrong and get less (floored at 0 - you can't lose more than
- * you staked). A Wikimedia hiccup at resolution time refunds the stake
- * instead of penalizing the player for an API outage.
+ * Resolve one bet as soon as its target day's real view count has actually
+ * been published - not on a fixed timer. Wikimedia's publish lag means that
+ * day is usually ready well before the 24h display estimate (bet late in the
+ * UTC day and it can be ready in minutes), so this checks for the real data
+ * every time a settle pass runs rather than waiting out the clock. Payout
+ * scales with the real % move in daily views: guess the direction right and
+ * get more than your stake back, wrong and get less (floored at 0 - you
+ * can't lose more than you staked). A Wikimedia hiccup at resolution time
+ * refunds the stake instead of penalizing the player for an API outage.
  */
 async function resolveBetIfDue(bet) {
-  if (bet.status !== "open" || Date.now() < bet.resolvesAt) return null;
+  if (bet.status !== "open") return null;
+  const targetDate = targetDateFor(bet);
 
+  // Cheap date-only check first, no API call: the target day can't possibly
+  // be published until it's at least become "yesterday" for real.
+  if (formatYYYYMMDD(latestAvailableDate()) < targetDate) return null;
+
+  const giveUp = Date.now() >= bet.resolvesAt + RESOLUTION_GRACE_MS;
   let endViews = bet.startViews;
   try {
-    const price = await getPagePrice(bet.project, bet.article, { force: true });
-    if (!price.unpriced) {
-      if (price.pendingLatest) {
-        // Real day-by-day figure isn't published yet - resolving now would
-        // compare against a 30-day average, not what actually happened the
-        // next day. Leave it open and catch it on a later settle pass,
-        // unless we've already given Wikimedia a full extra day to catch up.
-        if (Date.now() < bet.resolvesAt + RESOLUTION_GRACE_MS) return null;
-        // Past the grace period: unknowable, so refund rather than guess -
-        // endViews stays at startViews (break-even), same as an API hiccup.
-      } else {
-        endViews = Math.max(1, price.latestViews);
-      }
+    const target = parseDate(targetDate);
+    const views = await fetchDailyPageviews(bet.project, bet.article, target, target);
+    const raw = views.get(targetDate);
+    if (raw == null) {
+      // The day has rolled over but Wikimedia hasn't actually published it
+      // yet - keep waiting for a later settle pass unless we've given it a
+      // full extra day of grace already.
+      if (!giveUp) return null;
+      // Past the grace period: unknowable, so refund rather than guess -
+      // endViews stays at startViews (break-even), same as an API hiccup.
+    } else {
+      endViews = Math.max(1, raw);
     }
   } catch {
+    if (!giveUp) return null;
     /* endViews stays at startViews -> break-even refund */
   }
 
