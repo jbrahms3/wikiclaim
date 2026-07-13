@@ -226,6 +226,12 @@ a.side-card:hover { border-color: var(--accent); }
 .search input { flex: 1; border: none; background: transparent; padding: 10px 0; }
 .search input:focus { box-shadow: none; }
 
+#discover-nav-btn { gap: 6px; }
+#discover-nav-btn svg {
+  width: 16px; height: 16px; fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+
 .header-stats { display: flex; align-items: center; gap: 24px; margin-left: auto; }
 .hstat { display: flex; flex-direction: column; align-items: flex-end; }
 .hstat-label { font-size: 10.5px; color: var(--muted); font-weight: 600; }
@@ -579,11 +585,16 @@ img.thumb { border: 1px solid var(--border); }
     bottom: 0;
     z-index: 50;
     background: var(--bg);
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
     transform: translateX(-100%);
     transition: transform 0.25s ease;
   }
   .sidebar.open { transform: translateX(0); }
   .sidebar-backdrop.open { display: block; opacity: 1; }
+  /* Pinning the footer to the very bottom edge (desktop's margin-top: auto)
+     leaves it flush against real phones' browser chrome / home-indicator
+     area, cutting it off - sit it right under the nav links instead. */
+  .sidebar-footer { margin-top: 24px; }
 
   /* Tables scroll horizontally instead of clipping columns off-screen. */
   .table-card { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
