@@ -420,7 +420,10 @@ app.get(
       store.findAnyHolding(project, article),
     ]);
     const meta = metaMap.get(article) || {};
-    const listing = anyOwner ? await store.getListing(anyOwner.id) : null;
+    const [listing, owner] = await Promise.all([
+      anyOwner ? store.getListing(anyOwner.id) : null,
+      anyOwner ? store.getUser(anyOwner.userId) : null,
+    ]);
 
     res.json({
       article,
@@ -431,6 +434,7 @@ app.get(
       ...pricePayload(price),
       watched,
       owned: !!anyOwner,
+      ownerUsername: owner ? owner.username : null,
       listing: listing ? { id: listing.id, askPrice: listing.askPrice } : null,
       holding: holding
         ? {

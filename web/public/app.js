@@ -1425,7 +1425,9 @@ function renderDetailStats() {
     ["Status", d.holding
       ? "In your portfolio"
       : d.owned
-      ? (d.listing ? `Owned by another player — listed for ${fmt(d.listing.askPrice)} pts` : "Owned by another player")
+      ? (d.listing
+          ? `Owned by ${d.ownerUsername || "another player"} — listed for ${fmt(d.listing.askPrice)} pts`
+          : `Owned by ${d.ownerUsername || "another player"}`)
       : "Unowned"],
   ];
   if (d.holding) {
