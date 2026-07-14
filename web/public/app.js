@@ -257,6 +257,23 @@ function ensureSignedIn() {
   return false;
 }
 
+// Clicking your name/avatar opens Clerk's own account-management modal -
+// profile picture upload, email, password, connected accounts, etc. are
+// all handled there natively, nothing custom to build.
+function openAccountManagement() {
+  window.Clerk?.openUserProfile({});
+}
+for (const id of ["hdr-profile", "sidebar-profile"]) {
+  const el = $(`#${id}`);
+  el.addEventListener("click", openAccountManagement);
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openAccountManagement();
+    }
+  });
+}
+
 let signingIn = false;
 async function signInSucceeded() {
   if (signingIn) return; // the Clerk listener can fire repeatedly; don't stack

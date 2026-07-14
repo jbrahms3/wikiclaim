@@ -241,9 +241,17 @@ a.side-card:hover { border-color: var(--accent); }
 .hstat { display: flex; flex-direction: column; align-items: flex-end; }
 .hstat-label { font-size: 10.5px; color: var(--muted); font-weight: 600; }
 .hstat-value { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
-.profile { display: flex; align-items: center; gap: 9px; padding-left: 18px; border-left: 1px solid var(--border); }
+.profile {
+  display: flex; align-items: center; gap: 9px; padding-left: 18px;
+  border-left: 1px solid var(--border); cursor: pointer; border-radius: 8px;
+}
+.profile:hover { background: var(--card); }
 .profile-name { font-weight: 600; font-size: 13.5px; }
-.side-profile { display: flex; align-items: center; gap: 10px; padding: 2px 4px 4px; }
+.side-profile {
+  display: flex; align-items: center; gap: 10px; padding: 6px 4px;
+  cursor: pointer; border-radius: 8px;
+}
+.side-profile:hover { background: var(--card); }
 .avatar {
   width: 32px; height: 32px; border-radius: 50%;
   background: var(--accent-soft); color: var(--accent);
