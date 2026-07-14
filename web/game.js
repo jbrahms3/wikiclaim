@@ -112,6 +112,7 @@ export async function portfolio(userId) {
   let holdingsValue = 0;
   let todayEarnings = 0;
   let totalEarned = 0;
+  const latestSettledDate = fmtDate(latestAvailableDate());
   for (const h of holdings) {
     // If pricing is temporarily unavailable, show the last verified price
     // (what they paid) instead of a bogus 1 - it self-corrects within minutes.
@@ -124,9 +125,17 @@ export async function portfolio(userId) {
     }
     const current = price ? price.annualPrice : h.purchasePrice;
     holdingsValue += current;
-    // Today's earnings are a genuine daily figure (settlement pays daily
-    // views, not a slice of the annual price) - unaffected by annualization.
-    todayEarnings += price ? price.latestViews ?? price.avgViews : 0;
+    // `latestViews` is a live readership figure, not necessarily money the
+    // owner has earned. A holding begins earning the day after it is bought,
+    // so including the purchase day's views here made this number disagree
+    // with both the holding's earned total and the user's credited balance.
+    // Only include the latest published day once the owner was eligible to
+    // earn for it and its settlement completed. The latter guard also keeps
+    // a temporary Wikimedia failure from being presented as earned money.
+    const earnedLatestDay =
+      h.purchasedDate < latestSettledDate &&
+      h.lastSettledDate >= latestSettledDate;
+    todayEarnings += earnedLatestDay && price ? price.latestViews ?? price.avgViews : 0;
     totalEarned += h.totalEarned || 0;
     items.push({
       id: h.id,
