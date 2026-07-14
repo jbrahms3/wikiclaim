@@ -63,6 +63,10 @@
             <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
             Activity
           </a>
+          <a class="nav-item" href="#/about" data-route="about">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10.5v6M12 7.5v.01"/></svg>
+            About
+          </a>
         </nav>
 
         <div class="sidebar-footer">
@@ -407,6 +411,105 @@
             <div class="card">
               <ul class="feed big" id="activity-feed"></ul>
               <p class="empty" id="activity-empty" hidden>No activity yet — be the first to claim an article.</p>
+            </div>
+          </section>
+
+          <!-- About -->
+          <section class="page" id="page-about" hidden>
+            <h1 class="page-title">About WikiPicks</h1>
+            <p class="page-hint">How the game works, and how to play it.</p>
+            <div class="stack">
+              <div class="card about-card">
+                <h2>What is WikiPicks?</h2>
+                <p>
+                  Every article on Wikipedia is a tradeable asset here. Its price is based on
+                  real, live traffic pulled from Wikipedia's own pageview data — not made up.
+                  Buy articles you think are undervalued or about to spike, earn credits every
+                  day from their real readership, and climb the leaderboard. Browsing is free
+                  and doesn't require an account — you only need to sign in when you want to
+                  buy, sell, predict, or watch something.
+                </p>
+              </div>
+
+              <div class="card about-card">
+                <h2>How an article is priced</h2>
+                <p>
+                  Price = its average daily pageviews over the last 365 days, plus a bonus
+                  equal to its raw view total over the last 30 days — like valuing a business
+                  at its normal yearly run-rate plus a premium for a strong recent month. A
+                  page steady at 10 views/day costs roughly 10 + 300 = 310 points. Only human
+                  traffic counts; bot views are excluded.
+                </p>
+              </div>
+
+              <div class="card about-card">
+                <h2>Buying (claiming) an article</h2>
+                <p>
+                  Ownership is <strong>exclusive</strong> — once someone claims an article,
+                  it's off the primary market for everyone else. The price you pay is
+                  deducted from your points immediately. Find articles to buy on the
+                  <strong>Market</strong> page, by searching, or on the <strong>Discover</strong>
+                  page.
+                </p>
+              </div>
+
+              <div class="card about-card">
+                <h2>Earning</h2>
+                <p>
+                  Every real calendar day, each article you own pays you points equal to that
+                  day's actual view count. Earnings start the day <em>after</em> you buy.
+                  Wikipedia publishes pageview data with about a day's lag, so today's
+                  earnings show up tomorrow. Settlement is automatic — just open the app and
+                  everything owed gets credited, even if you were away for a while.
+                </p>
+              </div>
+
+              <div class="card about-card">
+                <h2>Selling: the secondary market</h2>
+                <p>
+                  There's no instant sell-back to the market. The only way to give up an
+                  article is to <strong>list</strong> it for resale at any price you choose,
+                  and wait for another player to buy it. Every article currently for sale can
+                  be found on the Secondary Market tab of the Market page, or turns up
+                  naturally in search results and on the Discover page. The buyer's payment
+                  goes straight to you — a genuine peer-to-peer trade, not a market payout.
+                </p>
+              </div>
+
+              <div class="card about-card">
+                <h2>Discover</h2>
+                <p>
+                  Not sure what to look for? The Discover page shuffles in random Wikipedia
+                  articles, lets you browse by topic (Science, History, Sports, and more), or
+                  search any category on Wikipedia directly — a way to explore without
+                  needing a specific article in mind.
+                </p>
+              </div>
+
+              <div class="card about-card">
+                <h2>Predictions</h2>
+                <p>
+                  Instead of owning a page, stake points on whether its <strong>daily
+                  views</strong> (not price) will be higher or lower than they are right now.
+                  Payout scales with how right — or wrong — you turn out to be: call it
+                  correctly and get back more than you staked, get it wrong and get back less
+                  (never less than zero). A prediction resolves as soon as the real numbers
+                  for the day come in — often well before its displayed 24-hour estimate,
+                  since Wikipedia's publishing time doesn't line up exactly with a fixed
+                  clock.
+                </p>
+              </div>
+
+              <div class="card about-card">
+                <h2>Points &amp; the leaderboard</h2>
+                <p>
+                  Everyone starts with <strong>5,000 points</strong>. Your <strong>net
+                  worth</strong> is your points balance plus the current value of everything
+                  you own — that's what the leaderboard ranks. The Points page tracks your
+                  balance, your earnings history, and progress toward a real $100 gift card
+                  milestone.
+                </p>
+              </div>
             </div>
           </section>
 

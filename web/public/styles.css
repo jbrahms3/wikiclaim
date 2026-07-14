@@ -496,6 +496,15 @@ img.thumb { border: 1px solid var(--border); }
 /* ---------- Predictions ---------- */
 .stack { display: flex; flex-direction: column; gap: 20px; }
 
+/* ---------- About ---------- */
+.about-card { padding: 20px 22px; }
+.about-card h2 { margin: 0 0 10px; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.about-card p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.65; color: var(--text); }
+.about-card ul { margin: 0 0 12px; padding-left: 20px; font-size: 13.5px; line-height: 1.65; color: var(--text); }
+.about-card li { margin-bottom: 4px; }
+.about-card p:last-child, .about-card ul:last-child { margin-bottom: 0; }
+.about-card strong { color: var(--accent); }
+
 .predict-card { margin-top: 16px; padding-bottom: 6px; }
 .predict-hint { padding: 0 16px; margin: 0 0 14px; }
 .predict-form {

@@ -483,7 +483,7 @@ function renderTicker() {
 
 /* ================= router ================= */
 
-const PAGES = ["overview", "points", "market", "discover", "watchlist", "predictions", "leaderboard", "activity", "article"];
+const PAGES = ["overview", "points", "market", "discover", "watchlist", "predictions", "leaderboard", "activity", "about", "article"];
 
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, "");
