@@ -154,6 +154,11 @@ input::placeholder { color: #9aa0a6; }
 .nav-item:hover { background: var(--card); }
 .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .nav-item.active svg { stroke: var(--accent); }
+/* Discord's brand mark is a filled glyph, not a stroke icon like the rest
+   of the nav - override to render solid, tinted with Discord's own blurple
+   on hover instead of the site's accent color. */
+.nav-item svg.discord-icon { fill: var(--muted); stroke: none; }
+.nav-item:hover svg.discord-icon { fill: #5865f2; }
 
 .sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
 .side-card {
