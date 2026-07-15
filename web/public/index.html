@@ -18,7 +18,7 @@
   ></script>
 </head>
 <body>
-  <div id="app">
+  <div id="app" inert aria-hidden="true">
     <!-- ============ App shell ============ -->
     <section id="game-view" class="view shell">
       <!-- Mobile-only backdrop behind the off-canvas sidebar -->
@@ -610,6 +610,15 @@
           </div>
         </form>
       </div>
+    </div>
+
+  </div>
+
+  <div class="construction-overlay" role="dialog" aria-modal="true" aria-labelledby="construction-title">
+    <div class="construction-notice">
+      <div class="construction-mark" aria-hidden="true">W</div>
+      <h1 id="construction-title">Under construction</h1>
+      <p>Stay tuned.</p>
     </div>
   </div>
   <script src="app.js"></script>
