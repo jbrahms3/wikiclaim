@@ -52,6 +52,8 @@ const rowToHolding = (r) =>
         purchasedDate: r.purchased_date,
         lastSettledDate: r.last_settled_date,
         totalEarned: r.total_earned,
+        latestEarned: r.latest_earned,
+        earningsRepaired: r.earnings_repaired,
       }
     : null;
 
@@ -186,6 +188,12 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       await q(
         `CREATE INDEX IF NOT EXISTS holdings_user_idx ON holdings (user_id);`
       );
+      // latest_earned is the most recent successfully settled day's payout;
+      // it keeps live readership estimates separate from credited points.
+      // Existing rows default to repair=false so the narrow legacy recovery
+      // in game.js can restore holdings skipped by the old empty-response bug.
+      await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS latest_earned BIGINT NOT NULL DEFAULT 0;`);
+      await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS earnings_repaired BOOLEAN NOT NULL DEFAULT false;`);
       await q(`
         CREATE TABLE IF NOT EXISTS page_cache (
           key TEXT PRIMARY KEY,
@@ -409,11 +417,13 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       await q(
         `INSERT INTO holdings
            (id, user_id, project, article, display_title, lang, key,
-            purchase_price, purchased_date, last_settled_date, total_earned)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            purchase_price, purchased_date, last_settled_date, total_earned,
+            latest_earned, earnings_repaired)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [
           h.id, h.userId, h.project, h.article, h.displayTitle, h.lang, h.key,
           h.purchasePrice, h.purchasedDate, h.lastSettledDate, h.totalEarned || 0,
+          h.latestEarned || 0, !!h.earningsRepaired,
         ]
       );
       return h;
@@ -428,11 +438,13 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         await q(
           `INSERT INTO holdings
              (id, user_id, project, article, display_title, lang, key,
-              purchase_price, purchased_date, last_settled_date, total_earned)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+              purchase_price, purchased_date, last_settled_date, total_earned,
+              latest_earned, earnings_repaired)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
           [
             h.id, h.userId, h.project, h.article, h.displayTitle, h.lang, h.key,
             h.purchasePrice, h.purchasedDate, h.lastSettledDate, h.totalEarned || 0,
+            h.latestEarned || 0, !!h.earningsRepaired,
           ]
         );
         return h;
@@ -441,12 +453,28 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         throw err;
       }
     },
-    async applySettlement(id, expectedLast, newLast, earnedDelta) {
+    async applySettlement(id, expectedLast, newLast, earnedDelta, latestEarned) {
       const { rowCount } = await q(
         `UPDATE holdings
-           SET last_settled_date = $3, total_earned = total_earned + $4
+           SET last_settled_date = $3,
+               total_earned = total_earned + $4,
+               latest_earned = $5
          WHERE id = $1 AND last_settled_date = $2`,
-        [id, expectedLast, newLast, earnedDelta]
+        [id, expectedLast, newLast, earnedDelta, latestEarned]
+      );
+      return rowCount > 0;
+    },
+    async applyEarningsRepair(id, expectedLast, earnedDelta, latestEarned) {
+      const { rowCount } = await q(
+        `UPDATE holdings
+           SET total_earned = total_earned + $3,
+               latest_earned = $4,
+               earnings_repaired = true
+         WHERE id = $1
+           AND last_settled_date = $2
+           AND total_earned = 0
+           AND earnings_repaired = false`,
+        [id, expectedLast, earnedDelta, latestEarned]
       );
       return rowCount > 0;
     },

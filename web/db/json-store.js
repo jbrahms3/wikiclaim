@@ -176,11 +176,28 @@ export function createJsonStore() {
     },
     // Compare-and-set settlement: only apply if lastSettledDate is unchanged,
     // so two concurrent settlements can't double-credit. Returns true if applied.
-    async applySettlement(id, expectedLast, newLast, earnedDelta) {
+    async applySettlement(id, expectedLast, newLast, earnedDelta, latestEarned) {
       const h = db.holdings[id];
       if (!h || h.lastSettledDate !== expectedLast) return false;
       h.lastSettledDate = newLast;
       h.totalEarned = (h.totalEarned || 0) + earnedDelta;
+      h.latestEarned = latestEarned;
+      persist();
+      return true;
+    },
+    async applyEarningsRepair(id, expectedLast, earnedDelta, latestEarned) {
+      const h = db.holdings[id];
+      if (
+        !h ||
+        h.lastSettledDate !== expectedLast ||
+        (h.totalEarned || 0) !== 0 ||
+        h.earningsRepaired
+      ) {
+        return false;
+      }
+      h.totalEarned = earnedDelta;
+      h.latestEarned = latestEarned;
+      h.earningsRepaired = true;
       persist();
       return true;
     },

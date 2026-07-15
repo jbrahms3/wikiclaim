@@ -35,6 +35,27 @@ export function startingCredits() {
 }
 
 /**
+ * Return the contiguous, actually-published portion of a requested settlement
+ * window. Wikimedia can temporarily return an empty response or omit its most
+ * recent day; a missing date must never be interpreted as a real zero.
+ */
+export function contiguousSettlement(views, start, latest) {
+  let earned = 0;
+  let latestEarned = 0;
+  let settledThrough = null;
+  let cursor = start;
+  while (cursor <= latest) {
+    const date = fmtDate(cursor);
+    if (!views.has(date)) break;
+    latestEarned = views.get(date);
+    earned += latestEarned;
+    settledThrough = date;
+    cursor = addDaysUTC(cursor, 1);
+  }
+  return { earned, latestEarned, settledThrough };
+}
+
+/**
  * Credit a single holding for every not-yet-settled day up to the latest
  * available pageview date. Mutates and saves the holding + owner's credits.
  * Returns the number of credits earned in this settlement pass.
@@ -52,21 +73,23 @@ export async function settleHolding(holding) {
     latest
   );
 
-  let earned = 0;
-  let cursor = start;
-  while (cursor <= latest) {
-    earned += views.get(fmtDate(cursor)) || 0;
-    cursor = addDaysUTC(cursor, 1);
-  }
+  const { earned, latestEarned, settledThrough } = contiguousSettlement(
+    views,
+    start,
+    latest
+  );
+  // No requested day was actually published. Leave the cursor untouched so
+  // the holding can retry instead of permanently losing those earnings.
+  if (!settledThrough) return 0;
 
-  const newDate = fmtDate(latest);
   // Compare-and-set on the old settle date: if a concurrent request already
   // settled this window, applied === false and we must not credit again.
   const applied = await store.applySettlement(
     holding.id,
     holding.lastSettledDate,
-    newDate,
-    earned
+    settledThrough,
+    earned,
+    latestEarned
   );
   if (!applied) return 0;
 
@@ -81,12 +104,62 @@ export async function settleHolding(holding) {
   return earned;
 }
 
+/**
+ * Recover holdings affected by the old empty-response bug. The repair is
+ * deliberately narrow: only legacy holdings that advanced beyond their
+ * purchase date while still having zero lifetime earnings are eligible, and
+ * the repair is applied once with a store-level atomic guard.
+ */
+export async function repairZeroSettlement(holding) {
+  if (
+    holding.earningsRepaired ||
+    holding.totalEarned !== 0 ||
+    holding.purchasedDate >= holding.lastSettledDate
+  ) {
+    return 0;
+  }
+
+  const start = addDaysUTC(parseDate(holding.purchasedDate), 1);
+  const end = parseDate(holding.lastSettledDate);
+  const views = await fetchDailyPageviews(
+    holding.project,
+    holding.article,
+    start,
+    end
+  );
+  const { earned, latestEarned, settledThrough } = contiguousSettlement(
+    views,
+    start,
+    end
+  );
+  // Wait until the entire historical window is available; a partial repair
+  // would recreate the same permanent data loss this path is correcting.
+  if (settledThrough !== holding.lastSettledDate) return 0;
+
+  const applied = await store.applyEarningsRepair(
+    holding.id,
+    holding.lastSettledDate,
+    earned,
+    latestEarned
+  );
+  if (!applied || earned === 0) return 0;
+
+  await store.addCredits(holding.userId, earned);
+  await logEvent(holding.userId, "earn", {
+    article: holding.article,
+    displayTitle: holding.displayTitle,
+    amount: earned,
+  });
+  return earned;
+}
+
 /** Settle every holding for a user. Returns total credits earned this pass. */
 export async function settleUser(userId) {
   const holdings = await store.holdingsForUser(userId);
   let total = 0;
   for (const h of holdings) {
     try {
+      total += await repairZeroSettlement(h);
       total += await settleHolding(h);
     } catch (err) {
       console.error("settle failed for", h.key, err);
@@ -125,17 +198,10 @@ export async function portfolio(userId) {
     }
     const current = price ? price.annualPrice : h.purchasePrice;
     holdingsValue += current;
-    // `latestViews` is a live readership figure, not necessarily money the
-    // owner has earned. A holding begins earning the day after it is bought,
-    // so including the purchase day's views here made this number disagree
-    // with both the holding's earned total and the user's credited balance.
-    // Only include the latest published day once the owner was eligible to
-    // earn for it and its settlement completed. The latter guard also keeps
-    // a temporary Wikimedia failure from being presented as earned money.
-    const earnedLatestDay =
-      h.purchasedDate < latestSettledDate &&
-      h.lastSettledDate >= latestSettledDate;
-    todayEarnings += earnedLatestDay && price ? price.latestViews ?? price.avgViews : 0;
+    // This is persisted from the successful settlement itself. Live/cached
+    // readership belongs in latestViews; it must never masquerade as points.
+    todayEarnings +=
+      h.lastSettledDate >= latestSettledDate ? h.latestEarned || 0 : 0;
     totalEarned += h.totalEarned || 0;
     items.push({
       id: h.id,
@@ -250,6 +316,8 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
     // starting with the next day's fresh traffic rather than back-paying.
     lastSettledDate: today,
     totalEarned: 0,
+    latestEarned: 0,
+    earningsRepaired: true,
   };
   const created = await store.createHoldingIfUnowned(holding);
   if (!created) {
@@ -414,6 +482,8 @@ export async function buyListing(userId, listingId) {
     purchasedDate: today,
     lastSettledDate: today,
     totalEarned: 0,
+    latestEarned: 0,
+    earningsRepaired: true,
   };
   const created = await store.createHoldingIfUnowned(newHolding);
   if (!created) {
