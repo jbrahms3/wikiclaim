@@ -5,6 +5,11 @@ const initials = (s) => (s || "?").trim().slice(0, 1).toUpperCase();
 const state = {
   user: null,
   me: null,
+  // Clerk restores its browser session asynchronously. Keep that distinct
+  // from a confirmed signed-out state so refreshes don't flash a false logout.
+  authStatus: "loading", // loading | restoring | signedIn | signedOut | error
+  authDisplayName: "",
+  signInOpening: false,
   categories: [],
   trending: [],
   watchlist: [],
@@ -235,16 +240,63 @@ function waitForClerkScript() {
 // state into the header/sidebar chrome and whichever page is showing -
 // nothing here blocks navigation or rendering.
 function renderAuthChrome() {
-  const signedIn = !!state.user;
+  const signedIn = state.authStatus === "signedIn" && !!state.user;
+  const restoring = state.authStatus === "restoring";
+  const checking = state.authStatus === "loading" || restoring;
+  const hasSession = signedIn || restoring;
   $("#hdr-networth-stat").hidden = !signedIn;
   $("#hdr-today-stat").hidden = !signedIn;
-  $("#hdr-profile").hidden = !signedIn;
-  $("#hdr-signin-btn").hidden = signedIn;
-  $("#sidebar-profile").hidden = !signedIn;
+  $("#hdr-profile").hidden = !hasSession;
+  $("#hdr-signin-btn").hidden = hasSession;
+  $("#sidebar-profile").hidden = !hasSession;
   $("#sidebar-points-card").hidden = !signedIn;
   $("#logout-btn").hidden = !signedIn;
-  $("#sidebar-signedout-card").hidden = signedIn;
-  $("#sidebar-signin-btn").hidden = signedIn;
+  $("#sidebar-signedout-card").hidden = hasSession;
+  $("#sidebar-signin-btn").hidden = hasSession;
+
+  if (restoring) {
+    const name = state.authDisplayName || "Signed in";
+    $("#hdr-username").textContent = `${name} · Loading…`;
+    $("#side-username").textContent = `${name} · Loading…`;
+    $("#hdr-avatar").textContent = initials(name);
+    $("#side-avatar").textContent = initials(name);
+  }
+
+  const buttonLabels = {
+    "hdr-signin-btn": "Sign In",
+    "sidebar-signin-btn": "Sign In",
+    "ov-signin-btn": "Sign In to Start Trading",
+    "points-signin-btn": "Sign In",
+    "watchlist-signin-btn": "Sign In",
+    "predictions-signin-btn": "Sign In",
+  };
+  for (const [id, readyLabel] of Object.entries(buttonLabels)) {
+    const button = $(`#${id}`);
+    button.disabled = checking || state.signInOpening;
+    button.textContent = checking
+      ? "Checking session…"
+      : state.signInOpening
+        ? "Opening sign in…"
+        : readyLabel;
+  }
+
+  const signedOutCard = $("#sidebar-signedout-card");
+  if (!signedOutCard.hidden) {
+    signedOutCard.querySelector(".side-card-label").textContent = checking
+      ? "Checking session"
+      : "Not signed in";
+    signedOutCard.querySelector(".side-card-hint").textContent = checking
+      ? "Restoring your account…"
+      : "Sign in to buy, sell, and predict";
+  }
+}
+
+function authIsPending() {
+  return state.authStatus === "loading" || state.authStatus === "restoring";
+}
+
+function authIsSignedOut() {
+  return state.authStatus === "signedOut" || state.authStatus === "error";
 }
 
 // Gate for any action that needs an account (buy, sell, list, predict,
@@ -253,7 +305,29 @@ function renderAuthChrome() {
 // can proceed right now.
 function ensureSignedIn() {
   if (state.user) return true;
-  window.Clerk?.openSignIn({});
+  if (authIsPending()) {
+    toast("Restoring your session…");
+    return false;
+  }
+  if (!window.Clerk) {
+    toast("Sign-in is still loading. Try again in a moment.", true);
+    return false;
+  }
+
+  // Paint feedback before Clerk prepares its modal. On a cold load that can
+  // take a moment, but the click should never appear to have done nothing.
+  state.signInOpening = true;
+  renderAuthChrome();
+  setTimeout(() => {
+    try {
+      window.Clerk.openSignIn({});
+    } finally {
+      setTimeout(() => {
+        state.signInOpening = false;
+        renderAuthChrome();
+      }, 1500);
+    }
+  }, 0);
   return false;
 }
 
@@ -275,13 +349,21 @@ for (const id of ["hdr-profile", "sidebar-profile"]) {
 }
 
 let signingIn = false;
-async function signInSucceeded() {
+async function signInSucceeded(clerkUser) {
   if (signingIn) return; // the Clerk listener can fire repeatedly; don't stack
   signingIn = true;
+  state.signInOpening = false;
+  state.authStatus = "restoring";
+  state.authDisplayName =
+    clerkUser?.username || clerkUser?.firstName || clerkUser?.primaryEmailAddress?.emailAddress || "Signed in";
+  renderAuthChrome();
+  renderRoute();
   try {
     const ok = await loadMe();
-    renderAuthChrome();
     if (!ok) {
+      state.authStatus = "error";
+      renderAuthChrome();
+      renderRoute();
       // Clerk session exists but the backend didn't resolve a matching
       // account (CLERK_SECRET_KEY missing/misconfigured server-side).
       // Browsing still works either way; only account actions would fail.
@@ -310,9 +392,17 @@ async function signInSucceeded() {
       }
       return;
     }
+    state.authStatus = "signedIn";
+    renderAuthChrome();
     loadSecondary();
     renderRoute();
     if (state.user.needsUsername) openUsernameModal();
+  } catch (err) {
+    state.authStatus = "error";
+    renderAuthChrome();
+    renderRoute();
+    console.error("Failed to restore signed-in account:", err);
+    toast("Signed in, but your account data couldn't be loaded. Try refreshing.", true);
   } finally {
     signingIn = false;
   }
@@ -321,22 +411,28 @@ async function signInSucceeded() {
 async function initClerk() {
   const Clerk = await waitForClerkScript();
   await Clerk.load();
-  // The listener fires immediately with current state, then again on every
-  // resource change (including periodic token refreshes). Dedupe on the user
-  // id so we only react to actual sign-in/out transitions.
+  // Restore the already-loaded user directly, then listen for real changes.
+  // This avoids waiting for the listener's first asynchronous notification.
   let lastUserId = "__init__";
-  Clerk.addListener(({ user }) => {
+  const syncUser = async (user) => {
     const id = user?.id ?? null;
     if (id === lastUserId) return;
     lastUserId = id;
     if (user) {
-      signInSucceeded();
+      await signInSucceeded(user);
     } else {
       state.user = null;
       state.me = null;
+      state.authStatus = "signedOut";
+      state.authDisplayName = "";
+      state.signInOpening = false;
       renderAuthChrome();
       renderRoute(); // re-render the current page in its signed-out form
     }
+  };
+  await syncUser(Clerk.user);
+  Clerk.addListener(({ user }) => {
+    syncUser(user).catch((err) => console.error("Clerk session update failed:", err));
   });
 }
 
@@ -572,7 +668,7 @@ $("#search-form").addEventListener("submit", (e) => {
 
 function renderOverview() {
   const me = state.me;
-  $("#ov-signedout").hidden = !!me;
+  $("#ov-signedout").hidden = !authIsSignedOut();
   $("#ov-content").hidden = !me;
 
   // These sections are public data - render regardless of sign-in.
@@ -706,7 +802,7 @@ function renderOvWatchlist() {
   const ul = $("#ov-watchlist");
   ul.innerHTML = "";
   if (!state.user) {
-    ul.innerHTML = `<li class="empty">Sign in to build a watchlist.</li>`;
+    ul.innerHTML = `<li class="empty">${authIsPending() ? "Checking your session…" : "Sign in to build a watchlist."}</li>`;
     return;
   }
   if (!state.watchlist.length) {
@@ -813,7 +909,7 @@ function updateProgressBar(credits, goal) {
 }
 
 async function renderPointsPage() {
-  $("#points-signedout").hidden = !!state.user;
+  $("#points-signedout").hidden = !authIsSignedOut();
   $("#points-content").hidden = !state.user;
   if (!state.user) return;
 
@@ -1174,7 +1270,7 @@ function loadListings() {
 /* ================= watchlist page ================= */
 
 function renderWatchlistPage() {
-  $("#watchlist-signedout").hidden = !!state.user;
+  $("#watchlist-signedout").hidden = !authIsSignedOut();
   $("#watchlist-content").hidden = !state.user;
   if (!state.user) return;
 
@@ -1211,7 +1307,7 @@ function renderWatchlistPage() {
 /* ================= predictions page ================= */
 
 function renderPredictionsPage() {
-  $("#predictions-signedout").hidden = !!state.user;
+  $("#predictions-signedout").hidden = !authIsSignedOut();
   $("#predictions-content").hidden = !state.user;
   if (!state.user) return;
 
@@ -1768,5 +1864,8 @@ loadSecondary();
 
 initClerk().catch((err) => {
   console.error(err);
+  state.authStatus = "error";
+  renderAuthChrome();
+  renderRoute();
   toast("Couldn't load sign-in — you can still browse.", true);
 });
