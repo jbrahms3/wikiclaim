@@ -612,14 +612,17 @@
       </div>
     </div>
 
-  </div>
-
-  <div class="construction-overlay" role="dialog" aria-modal="true" aria-labelledby="construction-title">
-    <div class="construction-notice">
-      <div class="construction-mark" aria-hidden="true">W</div>
-      <h1 id="construction-title">Under construction</h1>
-      <p>Stay tuned.</p>
+    <div class="modal-overlay" id="claim-confirm-modal" hidden>
+      <div class="modal-card">
+        <h2>Confirm claim</h2>
+        <p class="page-hint" id="claim-confirm-text"></p>
+        <div class="modal-actions">
+          <button class="btn-ghost" type="button" id="claim-confirm-cancel">Cancel</button>
+          <button class="btn-primary" type="button" id="claim-confirm-submit">Claim</button>
+        </div>
+      </div>
     </div>
+
   </div>
   <script src="app.js"></script>
 </body>

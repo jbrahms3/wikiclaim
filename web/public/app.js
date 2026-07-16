@@ -1201,11 +1201,11 @@ function buildArticleRow(r) {
       reprice(r.article, title, btn);
     });
   } else {
-    btn.textContent = affordable ? "Claim" : "Too pricey";
+    btn.textContent = "Claim";
     btn.disabled = !affordable;
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      buy({ article: r.article, title }, btn);
+      buy({ article: r.article, title, price: r.price }, btn);
     });
   }
   tr.addEventListener("click", () => openArticle(r.article));
@@ -1517,7 +1517,7 @@ function renderDetailActions() {
   } else if (!state.user || state.me.user.credits >= d.price) {
     actionBtn.textContent = `Claim for ${fmt(d.price)} pts`;
     actionBtn.disabled = false;
-    actionBtn.onclick = () => buy({ article: d.article, title: d.displayTitle }, actionBtn);
+    actionBtn.onclick = () => buy({ article: d.article, title: d.displayTitle, price: d.price }, actionBtn);
   } else {
     actionBtn.textContent = `Need ${fmt(d.price)} pts`;
     actionBtn.disabled = true;
@@ -1607,8 +1607,36 @@ function markOwnedInCachedLists(article) {
   }
 }
 
-async function buy(r, btn) {
+// Claiming is irreversible-ish (real points, exclusive ownership) - confirm
+// with an in-app modal instead of buying the instant a button is clicked.
+let pendingClaim = null; // { r, btn } while the modal is open
+
+function buy(r, btn) {
   if (!ensureSignedIn()) return;
+  pendingClaim = { r, btn };
+  $("#claim-confirm-text").textContent =
+    r.price != null ? `Claim "${r.title}" for ${fmt(r.price)} pts?` : `Claim "${r.title}"?`;
+  $("#claim-confirm-modal").hidden = false;
+}
+
+function closeClaimConfirmModal() {
+  $("#claim-confirm-modal").hidden = true;
+  pendingClaim = null;
+}
+
+$("#claim-confirm-cancel").addEventListener("click", closeClaimConfirmModal);
+$("#claim-confirm-modal").addEventListener("click", (e) => {
+  if (e.target.id === "claim-confirm-modal") closeClaimConfirmModal(); // click on the backdrop
+});
+
+$("#claim-confirm-submit").addEventListener("click", async () => {
+  if (!pendingClaim) return;
+  const { r, btn } = pendingClaim;
+  closeClaimConfirmModal();
+  await performBuy(r, btn);
+});
+
+async function performBuy(r, btn) {
   if (btn) {
     btn.disabled = true;
     btn.textContent = "Claiming…";
