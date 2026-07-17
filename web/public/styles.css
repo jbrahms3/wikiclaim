@@ -326,6 +326,7 @@ a.side-card:hover { border-color: var(--accent); }
   padding: 14px 16px 10px;
 }
 .card-head h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.discover-head-actions { display: flex; align-items: center; gap: 10px; }
 
 /* ---------- Overview chart + metrics ---------- */
 .overview-top {

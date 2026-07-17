@@ -634,6 +634,43 @@ export async function getCategoryMembers(category, limit = 24) {
 }
 
 /**
+ * A larger, unshuffled sample of a category's members, for ranking by real
+ * pageviews (see /api/discover's sort=views) rather than for random display.
+ * Wikipedia has no "sort category members by views" API, so this is
+ * necessarily an approximation: the true most-viewed article in a category
+ * could in principle rank outside this sample. `poolSize` trades off
+ * approximation quality against how many extra Wikimedia price lookups the
+ * caller then has to make to rank it (each one is cached, but a cold cache
+ * still costs a real fetch per candidate). CirrusSearch's default relevance
+ * ordering is text-relevance, not popularity, but it draws from the same
+ * large results pool as getCategoryMembers - just without the random offset,
+ * since a shuffle would defeat the point of getting a broad, size-limited
+ * sample to actually rank. Returns [{ title, article }].
+ */
+export async function getTopCategoryMembers(category, poolSize = 40) {
+  const name = category.replace(/^Category:/, "").replace(/_/g, " ");
+  const srsearch = `deepcat:"${name}"`;
+  const url =
+    "https://en.wikipedia.org/w/api.php?" +
+    new URLSearchParams({
+      action: "query",
+      list: "search",
+      srsearch,
+      srnamespace: "0",
+      srlimit: String(poolSize),
+      format: "json",
+      origin: "*",
+    });
+  const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA } });
+  if (!res.ok) throw new Error(`Search API ${res.status}`);
+  const data = await res.json();
+  return (data.query?.search || []).map((r) => ({
+    title: r.title,
+    article: r.title.replace(/ /g, "_"),
+  }));
+}
+
+/**
  * Live autocomplete for the Discover page's custom category search. English
  * Wikipedia has roughly 2.4 million categories, far too many to list, and
  * deepcat: needs an exact category title - so this lets someone type a few

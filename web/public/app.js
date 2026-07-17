@@ -29,6 +29,11 @@ const state = {
   bets: { open: [], resolved: [] },
   listings: [],
   discover: [],
+  // "views" only applies with a real category selected - ranking "most
+  // viewed" within the no-category random pool isn't meaningful (that's
+  // what the Trending page is for), so picking "Random" as the category
+  // resets this back to "random" too (see selectDiscoverCategory).
+  discoverSort: "random",
   discoverCategory: null, // set below once DISCOVER_CATEGORIES exists (defaults to "Random")
   discoverSeq: 0,
   discoverSuggestSeq: 0,
@@ -1022,9 +1027,21 @@ function renderDiscoverCategoryChips() {
   ).join("");
 }
 
+// The Random/Most Viewed toggle only makes sense once a real category is
+// picked (curated chip or custom search) - hidden otherwise.
+function renderDiscoverSortTabs() {
+  const el = $("#discover-sort-tabs");
+  el.hidden = !state.discoverCategory.value;
+  el.querySelectorAll(".pill-tab").forEach((t) =>
+    t.classList.toggle("active", t.dataset.sort === state.discoverSort)
+  );
+}
+
 function selectDiscoverCategory(cat) {
   state.discoverCategory = cat;
+  if (!cat.value) state.discoverSort = "random"; // see discoverSort's comment in state
   renderDiscoverCategoryChips();
+  renderDiscoverSortTabs();
   fetchDiscover();
 }
 
@@ -1034,6 +1051,14 @@ $("#discover-categories").addEventListener("click", (e) => {
   const cat = DISCOVER_CATEGORIES.find((c) => (c.value || "") === btn.dataset.value);
   $("#discover-category-input").value = ""; // a curated chip overrides any typed custom search
   selectDiscoverCategory(cat);
+});
+
+$("#discover-sort-tabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".pill-tab");
+  if (!btn || !state.discoverCategory.value) return;
+  state.discoverSort = btn.dataset.sort;
+  renderDiscoverSortTabs();
+  fetchDiscover();
 });
 
 $("#discover-shuffle-btn").addEventListener("click", () => fetchDiscover());
@@ -1093,14 +1118,20 @@ discoverSuggestionsEl.addEventListener("mousedown", (e) => {
 async function fetchDiscover() {
   const seq = ++state.discoverSeq;
   const cat = state.discoverCategory;
-  $("#discover-title").textContent = cat.value ? `Category: ${cat.label}` : "Random Articles";
+  const sortByViews = !!cat.value && state.discoverSort === "views";
+  $("#discover-title").textContent = cat.value
+    ? `${sortByViews ? "Most Viewed" : "Category"}: ${cat.label}`
+    : "Random Articles";
   const tbody = $("#discover-table tbody");
   $("#discover-empty").hidden = true;
   tbody.innerHTML = `<tr><td colspan="6" class="empty">Loading…</td></tr>`;
 
   let items;
   try {
-    const qs = cat.value ? `?category=${encodeURIComponent(cat.value)}` : "";
+    const params = new URLSearchParams();
+    if (cat.value) params.set("category", cat.value);
+    if (sortByViews) params.set("sort", "views");
+    const qs = params.toString() ? `?${params.toString()}` : "";
     ({ items } = await api(`/api/discover${qs}`));
   } catch (err) {
     if (seq !== state.discoverSeq) return; // superseded by a newer request
@@ -1130,6 +1161,7 @@ function renderDiscoverTable() {
 
 function renderDiscoverPage() {
   renderDiscoverCategoryChips();
+  renderDiscoverSortTabs();
   if (state.discover.length) renderDiscoverTable();
   else fetchDiscover();
 }

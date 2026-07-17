@@ -41,6 +41,7 @@ import {
   getCategoryIndexes,
   getRandomArticles,
   getCategoryMembers,
+  getTopCategoryMembers,
   suggestCategories,
 } from "./wikimedia.js";
 
@@ -362,16 +363,22 @@ app.get(
 // Exploration feed for browsing articles without a search term: a random
 // batch of Wikipedia articles, or (with ?category=) real members of an
 // actual Wikipedia category - not the small curated CATEGORY_BASKETS used
-// for the trending-page summary tiles.
+// for the trending-page summary tiles. ?sort=views (only meaningful with a
+// category) ranks by actual yesterday's views instead of a random sample -
+// see getTopCategoryMembers for why this is a bounded approximation, not an
+// exhaustive "the" most-viewed article in the category.
 app.get(
   "/api/discover",
   discoverLimiter,
   wrap(async (req, res) => {
     const category = String(req.query.category || "").trim();
-    const candidates = category
-      ? await getCategoryMembers(category, 24)
-      : await getRandomArticles(20);
-    const priced = await Promise.all(
+    const sortByViews = req.query.sort === "views" && !!category;
+    const candidates = sortByViews
+      ? await getTopCategoryMembers(category, 40)
+      : category
+        ? await getCategoryMembers(category, 24)
+        : await getRandomArticles(20);
+    let priced = await Promise.all(
       candidates.map(async (c) => {
         try {
           const p = await getPagePrice("en.wikipedia", c.article);
@@ -381,6 +388,12 @@ app.get(
         }
       })
     );
+    if (sortByViews) {
+      priced = priced
+        .filter((i) => !i.unpriced)
+        .sort((a, b) => (b.latestViews ?? 0) - (a.latestViews ?? 0))
+        .slice(0, 20);
+    }
     res.json({ items: await attachOwnership(await attachMeta(priced), req.userId) });
   })
 );

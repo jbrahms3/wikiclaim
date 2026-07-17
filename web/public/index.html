@@ -322,7 +322,13 @@
             <div class="card table-card">
               <div class="card-head">
                 <h2 id="discover-title">Random Articles</h2>
-                <button class="btn-ghost btn-sm" id="discover-shuffle-btn">🔀 Shuffle</button>
+                <div class="discover-head-actions">
+                  <div class="pill-tabs" id="discover-sort-tabs" hidden>
+                    <button class="pill-tab active" data-sort="random">Random</button>
+                    <button class="pill-tab" data-sort="views">Most Viewed</button>
+                  </div>
+                  <button class="btn-ghost btn-sm" id="discover-shuffle-btn">🔀 Shuffle</button>
+                </div>
               </div>
               <table class="table" id="discover-table">
                 <thead>
