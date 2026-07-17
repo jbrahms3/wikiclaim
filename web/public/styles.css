@@ -403,6 +403,7 @@ img.thumb { border: 1px solid var(--border); }
 .thumb.xl { width: 64px; height: 64px; border-radius: 12px; font-size: 24px; }
 .cell-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
 .cell-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.cell-sub.escrow-note { color: #b8860b; font-weight: 600; margin-top: 2px; cursor: help; }
 
 .badge {
   display: inline-flex; align-items: center; gap: 3px;

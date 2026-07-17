@@ -748,6 +748,7 @@ function renderHoldingsTable() {
           <div>
             <div class="cell-title">${escapeHtml(h.displayTitle)}</div>
             <div class="cell-sub">${escapeHtml(h.description || `since ${formatShortDate(h.purchasedDate)}`)}</div>
+            ${h.escrowedEarned > 0 ? `<div class="cell-sub escrow-note" title="A view spike on this article exceeded the normal daily range, so the extra earnings are held pending a manual review rather than paid out automatically.">⏳ ${fmt(h.escrowedEarned)} pts held for review</div>` : ""}
           </div>
         </div>
       </td>

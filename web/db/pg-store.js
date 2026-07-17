@@ -55,6 +55,9 @@ const rowToHolding = (r) =>
         totalEarned: r.total_earned,
         latestEarned: r.latest_earned,
         earningsRepaired: r.earnings_repaired,
+        escrowedEarned: r.escrowed_earned,
+        escrowStreakDays: r.escrow_streak_days,
+        escrowFlagged: r.escrow_flagged,
       }
     : null;
 
@@ -198,6 +201,14 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       // in game.js can restore holdings skipped by the old empty-response bug.
       await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS latest_earned BIGINT NOT NULL DEFAULT 0;`);
       await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS earnings_repaired BOOLEAN NOT NULL DEFAULT false;`);
+      // Anti-botting earnings cap (see contiguousSettlement in game.js):
+      // escrowed_earned accumulates daily view counts credited above the
+      // rolling-baseline cap; escrow_flagged marks a holding as needing
+      // manual review (/api/admin/escrow) once the held amount or the
+      // consecutive over-cap streak crosses a threshold. Never auto-released.
+      await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS escrowed_earned BIGINT NOT NULL DEFAULT 0;`);
+      await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS escrow_streak_days INTEGER NOT NULL DEFAULT 0;`);
+      await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS escrow_flagged BOOLEAN NOT NULL DEFAULT false;`);
       await q(`
         CREATE TABLE IF NOT EXISTS page_cache (
           key TEXT PRIMARY KEY,
@@ -462,14 +473,20 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         throw err;
       }
     },
-    async applySettlement(id, expectedLast, newLast, earnedDelta, latestEarned) {
+    async applySettlement(
+      id, expectedLast, newLast, earnedDelta, latestEarned,
+      escrowDelta = 0, escrowStreakDays = 0, escrowFlagged = false
+    ) {
       const { rowCount } = await q(
         `UPDATE holdings
            SET last_settled_date = $3,
                total_earned = total_earned + $4,
-               latest_earned = $5
+               latest_earned = $5,
+               escrowed_earned = escrowed_earned + $6,
+               escrow_streak_days = $7,
+               escrow_flagged = escrow_flagged OR $8
          WHERE id = $1 AND last_settled_date = $2`,
-        [id, expectedLast, newLast, earnedDelta, latestEarned]
+        [id, expectedLast, newLast, earnedDelta, latestEarned, escrowDelta, escrowStreakDays, escrowFlagged]
       );
       return rowCount > 0;
     },
@@ -489,6 +506,37 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     },
     async deleteHolding(id) {
       await q(`DELETE FROM holdings WHERE id = $1`, [id]);
+    },
+    // --- anti-botting escrow review (see game.js's contiguousSettlement) ---
+    async listFlaggedHoldings() {
+      const { rows } = await q(
+        `SELECT * FROM holdings WHERE escrow_flagged = true ORDER BY escrowed_earned DESC`
+      );
+      return rows.map(rowToHolding);
+    },
+    // Manual admin decision on a flagged holding's held-back earnings: credit
+    // them to the owner (release) or discard them (forfeit). Either way the
+    // holding's escrow state resets so settlement can accumulate fresh
+    // evidence rather than staying permanently flagged. Not wrapped in a
+    // transaction - this is a rare, manual, single-operator action, not a
+    // contended hot path, so the small window between the two updates isn't
+    // worth the added complexity.
+    async resolveEscrow(id, credit) {
+      const { rows } = await q(`SELECT * FROM holdings WHERE id = $1`, [id]);
+      const h = rowToHolding(rows[0]);
+      if (!h || !h.escrowFlagged) return null;
+      const amount = h.escrowedEarned;
+      await q(
+        `UPDATE holdings
+           SET escrowed_earned = 0, escrow_streak_days = 0, escrow_flagged = false,
+               total_earned = total_earned + $2
+         WHERE id = $1`,
+        [id, credit ? amount : 0]
+      );
+      if (credit && amount > 0) {
+        await q(`UPDATE users SET credits = credits + $2 WHERE id = $1`, [h.userId, amount]);
+      }
+      return { holdingId: id, userId: h.userId, article: h.article, amount, credited: !!credit };
     },
 
     // --- page price cache ---

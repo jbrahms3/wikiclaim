@@ -184,12 +184,18 @@ export function createJsonStore() {
     },
     // Compare-and-set settlement: only apply if lastSettledDate is unchanged,
     // so two concurrent settlements can't double-credit. Returns true if applied.
-    async applySettlement(id, expectedLast, newLast, earnedDelta, latestEarned) {
+    async applySettlement(
+      id, expectedLast, newLast, earnedDelta, latestEarned,
+      escrowDelta = 0, escrowStreakDays = 0, escrowFlagged = false
+    ) {
       const h = db.holdings[id];
       if (!h || h.lastSettledDate !== expectedLast) return false;
       h.lastSettledDate = newLast;
       h.totalEarned = (h.totalEarned || 0) + earnedDelta;
       h.latestEarned = latestEarned;
+      h.escrowedEarned = (h.escrowedEarned || 0) + (escrowDelta || 0);
+      h.escrowStreakDays = escrowStreakDays || 0;
+      h.escrowFlagged = !!h.escrowFlagged || !!escrowFlagged;
       persist();
       return true;
     },
@@ -212,6 +218,28 @@ export function createJsonStore() {
     async deleteHolding(id) {
       delete db.holdings[id];
       persist();
+    },
+    // --- anti-botting escrow review (see game.js's contiguousSettlement) ---
+    async listFlaggedHoldings() {
+      return Object.values(db.holdings)
+        .filter((h) => h.escrowFlagged)
+        .sort((a, b) => (b.escrowedEarned || 0) - (a.escrowedEarned || 0))
+        .map(copy);
+    },
+    async resolveEscrow(id, credit) {
+      const h = db.holdings[id];
+      if (!h || !h.escrowFlagged) return null;
+      const amount = h.escrowedEarned || 0;
+      h.totalEarned = (h.totalEarned || 0) + (credit ? amount : 0);
+      h.escrowedEarned = 0;
+      h.escrowStreakDays = 0;
+      h.escrowFlagged = false;
+      if (credit && amount > 0) {
+        const u = db.users[h.userId];
+        if (u) u.credits += amount;
+      }
+      persist();
+      return { holdingId: id, userId: h.userId, article: h.article, amount, credited: !!credit };
     },
 
     // --- page price cache ---

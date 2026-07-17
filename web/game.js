@@ -35,24 +35,97 @@ export function startingCredits() {
 }
 
 /**
+ * Anti-botting earnings cap. Wikimedia's pageviews API can't distinguish "a
+ * person kept reloading the article" from genuine readership, and settlement
+ * used to pay the raw daily view count 1:1 forever - an unbounded exploit
+ * for anyone willing to automate a refresh loop. Daily credited earnings are
+ * now capped against a short rolling baseline (the last EARNINGS_BASELINE_
+ * WINDOW_DAYS days, NOT the pricing engine's year-long average, which would
+ * take too long to "forgive" a genuinely new-normal popularity shift), with
+ * the tolerance shrinking as the baseline grows: a fixed 50% window is
+ * trivial to fake on an obscure page (a handful of refreshes) but represents
+ * an enormous number of real viewers on a popular one.
+ */
+const EARNINGS_BASELINE_WINDOW_DAYS = 30;
+const EARNINGS_CAP_FLOOR = 1.15; // large articles: max +15%/day over baseline
+const EARNINGS_CAP_CEILING = 1.5; // tiny articles: max +50%/day over baseline
+const EARNINGS_CAP_K = 500; // controls how fast the cap shrinks toward the floor
+
+export function earningsCapMultiplier(baseline) {
+  return (
+    EARNINGS_CAP_FLOOR +
+    (EARNINGS_CAP_CEILING - EARNINGS_CAP_FLOOR) / (1 + baseline / EARNINGS_CAP_K)
+  );
+}
+
+// Anything above the cap isn't forfeited outright - a real viral day
+// deserves to eventually be paid - it's held in escrow on the holding
+// instead. It's flagged for manual review (see /api/admin/escrow in
+// server.js) once it crosses either threshold below: one single huge spike,
+// or several smaller-but-sustained over-cap days in a row (a botnet could in
+// principle keep running for days, so "it persisted" alone can't be trusted
+// as automatic proof of legitimacy - a human has to look). Escrow is never
+// auto-released; it sits flagged until an admin approves or forfeits it.
+const ESCROW_FLAG_AMOUNT = 500;
+const ESCROW_FLAG_STREAK_DAYS = 3;
+
+// A one- or two-day "baseline" is just noise, not a reliable read on what's
+// normal for an article - capping against that thin a sample would unfairly
+// penalize e.g. a holding that's only been settled a couple of times so far.
+const MIN_BASELINE_DAYS = 7;
+
+/**
  * Return the contiguous, actually-published portion of a requested settlement
  * window. Wikimedia can temporarily return an empty response or omit its most
  * recent day; a missing date must never be interpreted as a real zero.
+ *
+ * `views` must also contain up to EARNINGS_BASELINE_WINDOW_DAYS of data
+ * before `start` (if available) so each settled day's rolling baseline can
+ * be computed - see settleHolding, which fetches that wider window.
+ * `incomingStreakDays` carries the over-cap streak across separate
+ * settlement passes (settlement usually advances one day at a time), so a
+ * botnet can't reset the streak just by running across multiple visits.
  */
-export function contiguousSettlement(views, start, latest) {
+export function contiguousSettlement(views, start, latest, incomingStreakDays = 0) {
   let earned = 0;
   let latestEarned = 0;
   let settledThrough = null;
+  let escrowDelta = 0;
+  let streakDays = incomingStreakDays;
   let cursor = start;
   while (cursor <= latest) {
     const date = fmtDate(cursor);
     if (!views.has(date)) break;
-    latestEarned = views.get(date);
-    earned += latestEarned;
+    const raw = views.get(date);
+
+    // Rolling baseline: the average of however many of the preceding
+    // EARNINGS_BASELINE_WINDOW_DAYS days we actually have data for (skips
+    // gaps rather than treating a missing day as 0 traffic). With too little
+    // prior data (a brand-new article, or a holding only settled once or
+    // twice so far), there's nothing reliable to judge "normal" against, so
+    // the cap doesn't apply that day.
+    let baselineSum = 0;
+    let baselineDays = 0;
+    for (let i = 1; i <= EARNINGS_BASELINE_WINDOW_DAYS; i++) {
+      const bDate = fmtDate(addDaysUTC(cursor, -i));
+      if (views.has(bDate)) {
+        baselineSum += views.get(bDate);
+        baselineDays++;
+      }
+    }
+    const baseline = baselineDays >= MIN_BASELINE_DAYS ? Math.max(1, baselineSum / baselineDays) : raw;
+    const cap = Math.round(baseline * earningsCapMultiplier(baseline));
+    const credited = Math.min(raw, cap);
+    const excess = Math.max(0, raw - credited);
+
+    earned += credited;
+    latestEarned = credited;
+    escrowDelta += excess;
+    streakDays = excess > 0 ? streakDays + 1 : 0;
     settledThrough = date;
     cursor = addDaysUTC(cursor, 1);
   }
-  return { earned, latestEarned, settledThrough };
+  return { earned, latestEarned, settledThrough, escrowDelta, streakDays };
 }
 
 /**
@@ -66,21 +139,31 @@ export async function settleHolding(holding) {
   const start = addDaysUTC(parseDate(holding.lastSettledDate), 1);
   if (start > latest) return 0;
 
+  // Fetch extra lookback so contiguousSettlement can compute a real rolling
+  // baseline for every day in the settlement window, not just the window
+  // itself - see EARNINGS_BASELINE_WINDOW_DAYS.
+  const fetchStart = addDaysUTC(start, -EARNINGS_BASELINE_WINDOW_DAYS);
   const views = await fetchDailyPageviews(
     holding.project,
     holding.article,
-    start,
+    fetchStart,
     latest
   );
 
-  const { earned, latestEarned, settledThrough } = contiguousSettlement(
+  const { earned, latestEarned, settledThrough, escrowDelta, streakDays } = contiguousSettlement(
     views,
     start,
-    latest
+    latest,
+    holding.escrowStreakDays || 0
   );
   // No requested day was actually published. Leave the cursor untouched so
   // the holding can retry instead of permanently losing those earnings.
   if (!settledThrough) return 0;
+
+  const newEscrowTotal = (holding.escrowedEarned || 0) + escrowDelta;
+  const shouldFlag =
+    !holding.escrowFlagged &&
+    (newEscrowTotal >= ESCROW_FLAG_AMOUNT || streakDays >= ESCROW_FLAG_STREAK_DAYS);
 
   // Compare-and-set on the old settle date: if a concurrent request already
   // settled this window, applied === false and we must not credit again.
@@ -89,7 +172,10 @@ export async function settleHolding(holding) {
     holding.lastSettledDate,
     settledThrough,
     earned,
-    latestEarned
+    latestEarned,
+    escrowDelta,
+    streakDays,
+    shouldFlag
   );
   if (!applied) return 0;
 
@@ -100,6 +186,12 @@ export async function settleHolding(holding) {
       displayTitle: holding.displayTitle,
       amount: earned,
     });
+  }
+  if (shouldFlag) {
+    console.warn(
+      `Holding ${holding.id} (${holding.article}) flagged for manual escrow review: ` +
+        `escrow=${newEscrowTotal} streak=${streakDays}d - see /api/admin/escrow.`
+    );
   }
   return earned;
 }
@@ -121,10 +213,17 @@ export async function repairZeroSettlement(holding) {
 
   const start = addDaysUTC(parseDate(holding.purchasedDate), 1);
   const end = parseDate(holding.lastSettledDate);
+  // Extra lookback for the same rolling-baseline cap the normal settlement
+  // path applies (see EARNINGS_BASELINE_WINDOW_DAYS) - a historical window
+  // being repaired shouldn't pay out an uncapped amount just because it's
+  // old. Any excess above the cap here is simply not credited rather than
+  // escrowed: this repair path is a narrow, one-time catch-up for a small
+  // set of legacy holdings, not worth the extra bookkeeping for.
+  const fetchStart = addDaysUTC(start, -EARNINGS_BASELINE_WINDOW_DAYS);
   const views = await fetchDailyPageviews(
     holding.project,
     holding.article,
-    start,
+    fetchStart,
     end
   );
   const { earned, latestEarned, settledThrough } = contiguousSettlement(
@@ -254,6 +353,11 @@ export async function portfolio(userId) {
       totalEarned: h.totalEarned || 0,
       purchasedDate: h.purchasedDate,
       listing: listingById.has(h.id) ? { askPrice: listingById.get(h.id).askPrice } : null,
+      // Surfaced so the owner isn't left wondering where a real traffic
+      // spike's earnings went - see the anti-botting cap in
+      // contiguousSettlement. Held earnings are never silently dropped.
+      escrowedEarned: h.escrowedEarned || 0,
+      escrowFlagged: !!h.escrowFlagged,
     });
   });
   items.sort((a, b) => b.currentPrice - a.currentPrice);

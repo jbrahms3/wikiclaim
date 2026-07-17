@@ -196,6 +196,23 @@ const requireAuth = (req, res, next) => {
   next();
 };
 
+// Operator-only routes (escrow review, see game.js's anti-botting cap) -
+// gated by a shared secret, entirely separate from Clerk user auth. Unset by
+// default, which disables these routes rather than leaving them open.
+const ADMIN_KEY = process.env.ADMIN_KEY;
+if (!ADMIN_KEY) {
+  console.warn(
+    "ADMIN_KEY is not set - the /api/admin/escrow review endpoints are disabled. " +
+      "Set it in web/.env locally (see .env.example) and in Railway's Variables to use them."
+  );
+}
+const requireAdmin = (req, res, next) => {
+  if (!ADMIN_KEY || req.headers["x-admin-key"] !== ADMIN_KEY) {
+    return res.status(401).json({ error: "Not authorized." });
+  }
+  next();
+};
+
 const wrap = (fn) => (req, res) =>
   Promise.resolve(fn(req, res)).catch((err) => {
     console.error(err);
@@ -635,6 +652,59 @@ app.get(
   wrap(async (req, res) => {
     const summary = await pointsSummary(req.userId);
     res.json({ ...summary, history: await attachMeta(summary.history) });
+  })
+);
+
+// --- Anti-botting escrow review (see contiguousSettlement in game.js) ---
+// A holding's earnings get flagged, not auto-resolved, once a spike is big
+// or sustained enough to look suspicious - it takes a human decision either
+// way, since a botnet could in principle keep running for days too.
+app.get(
+  "/api/admin/escrow",
+  requireAdmin,
+  wrap(async (req, res) => {
+    const holdings = await store.listFlaggedHoldings();
+    const decorated = await Promise.all(
+      holdings.map(async (h) => {
+        const user = await store.getUser(h.userId);
+        // Recent daily views give the reviewer the actual evidence to judge
+        // by, without having to separately go look it up.
+        const recentViews = await getArticleHistory(h.project, h.article, 14).catch(() => []);
+        return {
+          holdingId: h.id,
+          userId: h.userId,
+          username: user ? user.username : "unknown",
+          article: h.article,
+          displayTitle: h.displayTitle,
+          url: `https://${h.lang}.wikipedia.org/wiki/${h.article}`,
+          purchasedDate: h.purchasedDate,
+          escrowedEarned: h.escrowedEarned || 0,
+          escrowStreakDays: h.escrowStreakDays || 0,
+          recentViews,
+        };
+      })
+    );
+    res.json({ holdings: decorated });
+  })
+);
+
+app.post(
+  "/api/admin/escrow/:id/release",
+  requireAdmin,
+  wrap(async (req, res) => {
+    const result = await store.resolveEscrow(req.params.id, true);
+    if (!result) throw new Error("Holding not found, or not currently flagged.");
+    res.json(result);
+  })
+);
+
+app.post(
+  "/api/admin/escrow/:id/forfeit",
+  requireAdmin,
+  wrap(async (req, res) => {
+    const result = await store.resolveEscrow(req.params.id, false);
+    if (!result) throw new Error("Holding not found, or not currently flagged.");
+    res.json(result);
   })
 );
 
