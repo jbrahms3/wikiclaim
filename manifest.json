@@ -6,7 +6,8 @@
   "permissions": ["storage", "alarms"],
   "host_permissions": [
     "https://*.wikipedia.org/*",
-    "https://wikimedia.org/api/*"
+    "https://wikimedia.org/api/*",
+    "https://wikipicks.app/*"
   ],
   "background": {
     "service_worker": "background.js"

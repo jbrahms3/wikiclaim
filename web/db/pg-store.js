@@ -32,6 +32,7 @@ const rowToUser = (r) =>
         id: r.id,
         username: r.username,
         clerkUserId: r.clerk_user_id,
+        email: r.email,
         credits: r.credits,
         createdAt: r.created_at,
         needsUsername: r.needs_username,
@@ -169,6 +170,9 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       // keeping the auto-generated one - defaults to false so existing rows
       // aren't retroactively forced through the prompt.
       await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS needs_username BOOLEAN NOT NULL DEFAULT false;`);
+      // Pulled from Clerk's profile at first-sign-in for welcome/marketing
+      // emails (see email.js); Clerk still owns identity, this is just a copy.
+      await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;`);
       await q(`
         CREATE TABLE IF NOT EXISTS holdings (
           id TEXT PRIMARY KEY,
@@ -318,9 +322,9 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     },
     async createUser(user) {
       await q(
-        `INSERT INTO users (id, username, clerk_user_id, credits, created_at)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [user.id, user.username, user.clerkUserId, user.credits, user.createdAt]
+        `INSERT INTO users (id, username, clerk_user_id, email, credits, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [user.id, user.username, user.clerkUserId, user.email || null, user.credits, user.createdAt]
       );
       return user;
     },
@@ -331,11 +335,11 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     async createUserIfNotExists(user) {
       try {
         const { rows } = await q(
-          `INSERT INTO users (id, username, clerk_user_id, credits, created_at, needs_username)
-           VALUES ($1, $2, $3, $4, $5, $6)
+          `INSERT INTO users (id, username, clerk_user_id, email, credits, created_at, needs_username)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT (clerk_user_id) WHERE clerk_user_id IS NOT NULL DO NOTHING
            RETURNING *`,
-          [user.id, user.username, user.clerkUserId, user.credits, user.createdAt, !!user.needsUsername]
+          [user.id, user.username, user.clerkUserId, user.email || null, user.credits, user.createdAt, !!user.needsUsername]
         );
         if (rows[0]) return { user: rowToUser(rows[0]), created: true };
         const existing = await this.findUserByClerkId(user.clerkUserId);
@@ -347,10 +351,10 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         const existing = await this.findUserByClerkId(user.clerkUserId);
         if (existing) return { user: existing, created: false };
         const { rows } = await q(
-          `INSERT INTO users (id, username, clerk_user_id, credits, created_at, needs_username)
-           VALUES ($1, $2, $3, $4, $5, $6)
+          `INSERT INTO users (id, username, clerk_user_id, email, credits, created_at, needs_username)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING *`,
-          [user.id, `${user.username}_${user.id.slice(-4)}`, user.clerkUserId, user.credits, user.createdAt, !!user.needsUsername]
+          [user.id, `${user.username}_${user.id.slice(-4)}`, user.clerkUserId, user.email || null, user.credits, user.createdAt, !!user.needsUsername]
         );
         return { user: rowToUser(rows[0]), created: true };
       }
@@ -369,6 +373,11 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         if (err.code === "23505") return null;
         throw err;
       }
+    },
+    // Backfills email for accounts provisioned before this column existed
+    // (see scripts/backfill-emails.js) - Clerk remains the source of truth.
+    async setEmail(userId, email) {
+      await q(`UPDATE users SET email = $2 WHERE id = $1`, [userId, email]);
     },
     async tryDebit(userId, amount) {
       const { rows } = await q(

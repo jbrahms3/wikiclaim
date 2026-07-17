@@ -15,11 +15,20 @@
   border-radius: 12px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  max-width: 300px;
 }
 
-#wikiclaim-widget.wikiclaim-claimed {
+/* Someone already owns this article. */
+#wikiclaim-widget[data-state="owned"] {
   background: linear-gradient(135deg, #2c2410, #1f2430);
   border-color: #d69e1e;
+}
+
+/* Wikimedia has no traffic data for this page yet, or it's not English. */
+#wikiclaim-widget[data-state="unpriced"],
+#wikiclaim-widget[data-state="unsupported"],
+#wikiclaim-widget[data-state="error"] {
+  opacity: 0.85;
 }
 
 #wikiclaim-widget .wikiclaim-badge {
@@ -39,19 +48,35 @@
 #wikiclaim-widget .wikiclaim-info {
   display: flex;
   flex-direction: column;
-  line-height: 1.25;
+  line-height: 1.3;
   min-width: 90px;
 }
 
 #wikiclaim-widget .wikiclaim-title {
   font-weight: 600;
   color: #f4f0e6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-#wikiclaim-widget .wikiclaim-points {
+#wikiclaim-widget .wikiclaim-meta {
+  color: #b9b3a2;
+  font-size: 11.5px;
+  margin-top: 1px;
+}
+
+#wikiclaim-widget[data-state="unowned"] .wikiclaim-meta {
   color: #ffd65c;
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: 600;
+}
+
+#wikiclaim-widget[data-state="owned"] .wikiclaim-meta {
+  color: #d69e1e;
+}
+
+#wikiclaim-widget[data-state="error"] .wikiclaim-meta {
+  color: #ff8080;
 }
 
 #wikiclaim-widget .wikiclaim-btn {
@@ -67,10 +92,16 @@
   transition: opacity 0.15s ease;
 }
 
-#wikiclaim-widget.wikiclaim-claimed .wikiclaim-btn {
+#wikiclaim-widget[data-state="owned"] .wikiclaim-btn {
   background: transparent;
   color: #f4f0e6;
   border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+#wikiclaim-widget[data-state="error"] .wikiclaim-btn {
+  background: transparent;
+  color: #ff8080;
+  border: 1px solid rgba(255, 128, 128, 0.4);
 }
 
 #wikiclaim-widget .wikiclaim-btn:hover {

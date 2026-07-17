@@ -7,14 +7,17 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test game.test.js"
+    "test": "node --test game.test.js",
+    "send-marketing": "node scripts/send-marketing.js",
+    "backfill-emails": "node scripts/backfill-emails.js"
   },
   "dependencies": {
     "@clerk/backend": "^3.11.2",
     "dotenv": "^17.4.2",
     "express": "^4.19.2",
     "express-rate-limit": "^8.5.2",
-    "pg": "^8.12.0"
+    "pg": "^8.12.0",
+    "resend": "^4.0.1"
   },
   "engines": {
     "node": ">=18"

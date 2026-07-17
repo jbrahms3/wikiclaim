@@ -111,6 +111,14 @@ export function createJsonStore() {
       persist();
       return copy(u);
     },
+    // Backfills email for accounts provisioned before this field existed
+    // (see scripts/backfill-emails.js) - Clerk remains the source of truth.
+    async setEmail(userId, email) {
+      const u = db.users[userId];
+      if (!u) return;
+      u.email = email;
+      persist();
+    },
     // Atomically subtract `amount` iff the balance can cover it.
     // Returns the new balance, or null if funds are insufficient.
     async tryDebit(userId, amount) {

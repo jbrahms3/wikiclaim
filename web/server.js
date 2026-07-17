@@ -14,6 +14,7 @@ import rateLimit from "express-rate-limit";
 import { createClerkClient, verifyToken } from "@clerk/backend";
 
 import { store, uid, initStore } from "./store.js";
+import { sendWelcomeEmail, syncMarketingContact } from "./email.js";
 import {
   startingCredits,
   portfolio,
@@ -149,13 +150,11 @@ async function resolveUserFromToken(bearerToken) {
 
   // First time we've seen this Clerk user - provision our internal record.
   let displayName = `trader_${clerkUserId.slice(-6)}`;
+  let email = null;
   try {
     const profile = await clerkClient.users.getUser(clerkUserId);
-    displayName =
-      profile.username ||
-      profile.firstName ||
-      profile.emailAddresses?.[0]?.emailAddress?.split("@")[0] ||
-      displayName;
+    email = profile.emailAddresses?.[0]?.emailAddress || null;
+    displayName = profile.username || profile.firstName || email?.split("@")[0] || displayName;
   } catch (err) {
     console.error("Failed to fetch Clerk profile for", clerkUserId, err);
   }
@@ -164,11 +163,19 @@ async function resolveUserFromToken(bearerToken) {
     id: uid(),
     clerkUserId,
     username: displayName,
+    email,
     credits: startingCredits(),
     createdAt: Date.now(),
     needsUsername: true,
   });
-  if (created) await logEvent(user.id, "join", {});
+  if (created) {
+    // The "join" activity event is logged once they pick their real
+    // username (see /api/username) - logging it here would snapshot the
+    // auto-generated placeholder name instead of what they actually choose.
+    // Fire-and-forget: neither should ever block or fail sign-in.
+    sendWelcomeEmail(user);
+    syncMarketingContact(user);
+  }
   return user;
 }
 
@@ -303,8 +310,14 @@ app.post(
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
       throw new Error("Username must be 3-20 characters: letters, numbers, and underscores only.");
     }
+    // This route is only ever hit for the mandatory initial username choice
+    // (see needsUsername in app.js) - checking the flag here, rather than
+    // logging unconditionally, keeps a "join" event from also firing if
+    // this endpoint is ever reused for renaming later.
+    const wasNewAccount = (await store.getUser(req.userId))?.needsUsername;
     const updated = await store.setUsername(req.userId, username);
     if (!updated) throw new Error("That username is already taken.");
+    if (wasNewAccount) await logEvent(updated.id, "join", {});
     res.json({ user: publicUser(updated) });
   })
 );

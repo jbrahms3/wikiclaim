@@ -29,6 +29,16 @@ const EMPTY_CACHE_MS = 3 * 60 * 1000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Plain fetch() has no timeout - a stalled Wikimedia connection can hang for
+// minutes (undici's own default is ~5), and since settlement fetches run one
+// holding at a time (see settleUser in game.js), that single hang stalls
+// /api/me and leaves the frontend stuck on "Checking your session..."
+// indefinitely. Fail fast instead so callers get a real error to react to.
+const FETCH_TIMEOUT_MS = 10_000;
+function fetchWithTimeout(url, opts) {
+  return fetch(url, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+}
+
 // Cap how many pageviews requests are in flight at once. Firing 20-30 at
 // once (e.g. pricing every article in the category-index baskets) reliably
 // triggers rate limiting from Wikimedia, which is the root cause above.
@@ -98,27 +108,54 @@ function encodeArticle(article) {
  * Fetch daily view counts (human traffic only) for [start, end] inclusive.
  * Returns Map<"YYYYMMDD", views>. A 404 (after retries) means "no data".
  */
+// Short-lived negative cache for small (settlement-sized) ranges that came
+// back empty. Right after latestAvailableDate() rolls to a new UTC day, that
+// day isn't published yet, so settling any holding 404s - and settlement
+// can't advance its cursor, so it retries the SAME empty range on every
+// portfolio load until Wikimedia publishes. Without this, a user with many
+// pages re-hits the API for every one of them on every refresh during that
+// (hours-long) window. Scoped to short ranges so the year-long price fetch
+// (whose empty result is handled separately, with its own short TTL) is
+// never suppressed here.
+const emptyRangeCache = new Map(); // "project::article::s::e" -> expiresAt
+const EMPTY_RANGE_TTL_MS = 15 * 60 * 1000;
+const EMPTY_RANGE_MAX_DAYS = 7;
+
 export async function fetchDailyPageviews(project, article, start, end) {
   if (start > end) return new Map();
   const s = `${formatYYYYMMDD(start)}00`;
   const e = `${formatYYYYMMDD(end)}00`;
+
+  const spanDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+  const negKey = `${project}::${article}::${s}::${e}`;
+  const negExpiresAt = spanDays <= EMPTY_RANGE_MAX_DAYS ? emptyRangeCache.get(negKey) : undefined;
+  if (negExpiresAt != null) {
+    if (Date.now() < negExpiresAt) return new Map();
+    emptyRangeCache.delete(negKey);
+  }
+
   const url = `${PAGEVIEWS_BASE}/${project}/all-access/user/${encodeArticle(
     article
   )}/daily/${s}/${e}`;
 
-  // Wikimedia's edge cache sometimes serves a bogus 404 for articles that
-  // have data (confirmed live: Star_Wars_(film) 404'd while the same URL
-  // with a junk query param returned 200), and that 404 is itself cached
-  // with s-maxage=600 - so plain retries of the same URL just replay the
-  // poisoned cache entry for up to 10 minutes. Retries therefore append a
-  // throwaway query param: the query string is part of the edge cache key,
-  // which punches through to the real backend. First attempt stays clean so
-  // we still benefit from the cache when it's healthy.
-  const RETRY_DELAYS_MS = [300, 1000, 2500];
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+  // A 404 has two very different causes:
+  //   1. The requested day genuinely isn't published yet - the common case
+  //      for the newest day right after the daily reset, and true for every
+  //      holding at once.
+  //   2. Wikimedia's edge cache serving a bogus, cached-for-~10-min 404 for
+  //      an article that DOES have data (confirmed live: Star_Wars_(film)
+  //      404'd while the same URL with a junk query param returned 200).
+  // A single cache-busting retry (the query string is part of the edge cache
+  // key, so it punches through to the real backend) tells them apart. We do
+  // NOT sleep between these: the old exponential backoff spent ~3.8s per call
+  // on genuinely-unpublished days, which - multiplied across every holding on
+  // every load during the post-reset window - was the real settlement stall.
+  // Real rate limiting (429) is the only case that still backs off.
+  const RATE_LIMIT_BACKOFF_MS = [500, 1500, 3000];
+  for (let attempt = 0; attempt < 4; attempt++) {
     const u = attempt === 0 ? url : `${url}?cachebust=${Date.now()}_${attempt}`;
     const res = await withPageviewsLimit(() =>
-      fetch(u, { headers: { Accept: "application/json", "User-Agent": UA } })
+      fetchWithTimeout(u, { headers: { Accept: "application/json", "User-Agent": UA } })
     );
 
     if (res.ok) {
@@ -131,13 +168,25 @@ export async function fetchDailyPageviews(project, article, start, end) {
       return out;
     }
 
-    const retryable = res.status === 404 || res.status === 429;
-    if (retryable && attempt < RETRY_DELAYS_MS.length) {
-      await sleep(RETRY_DELAYS_MS[attempt]);
+    if (res.status === 429 && attempt < RATE_LIMIT_BACKOFF_MS.length) {
+      await sleep(RATE_LIMIT_BACKOFF_MS[attempt]);
       continue;
     }
-    if (res.status === 404) return new Map();
-    throw new Error(`Pageviews API ${res.status} for ${project}/${article}`);
+    if (res.status === 404) {
+      // First 404: retry once immediately with a cache-buster in case it's a
+      // poisoned edge-cache entry. Still 404 after that: genuinely no data.
+      if (attempt === 0) continue;
+      if (spanDays <= EMPTY_RANGE_MAX_DAYS) {
+        emptyRangeCache.set(negKey, Date.now() + EMPTY_RANGE_TTL_MS);
+      }
+      return new Map();
+    }
+    if (res.status !== 429) {
+      throw new Error(`Pageviews API ${res.status} for ${project}/${article}`);
+    }
+  }
+  if (spanDays <= EMPTY_RANGE_MAX_DAYS) {
+    emptyRangeCache.set(negKey, Date.now() + EMPTY_RANGE_TTL_MS);
   }
   return new Map();
 }
@@ -176,11 +225,31 @@ function withDerived(entry) {
 // and fire at the same time on a cold cache.
 const inflightPrices = new Map(); // key -> Promise<entry>
 
-export async function getPagePrice(project, article, { force = false } = {}) {
+// allowStale: return whatever's cached immediately (even if past its TTL) and
+// refresh in the background instead of blocking on the fetch. The portfolio
+// view uses this - a page's current price/net worth being a few hours old is
+// fine, and it means loading your holdings never waits on N year-long
+// Wikimedia fetches just because the 6h price cache lapsed. A true cache miss
+// (an article never priced before) still has to block, since there's nothing
+// to show yet.
+export async function getPagePrice(project, article, { force = false, allowStale = false } = {}) {
   const key = pageKey(project, article);
   const cached = await store.getPageCache(key);
   const ttl = cached && looksEmpty(cached) ? EMPTY_CACHE_MS : PRICE_CACHE_MS;
   if (!force && cached && Date.now() - cached.updatedAt < ttl) {
+    return withDerived(cached);
+  }
+
+  // Stale-while-revalidate: hand back the cached value now, kick off (or join)
+  // a background refresh so the next read is fresh.
+  if (!force && allowStale && cached) {
+    if (!inflightPrices.has(key)) {
+      const bg = fetchAndCachePrice(key, project, article).finally(() =>
+        inflightPrices.delete(key)
+      );
+      bg.catch(() => {}); // fire-and-forget; a failed refresh just keeps the stale value
+      inflightPrices.set(key, bg);
+    }
     return withDerived(cached);
   }
 
@@ -311,7 +380,7 @@ export async function getPageMeta(articles) {
           format: "json",
           origin: "*",
         });
-      const res = await fetch(url, { headers: { "User-Agent": UA } });
+      const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA } });
       if (!res.ok) continue;
       const data = await res.json();
 
@@ -415,7 +484,7 @@ async function fetchTopArticles() {
     const url = `${TOP_LIST_BASE}/en.wikipedia/all-access/${day.getUTCFullYear()}/${pad2(
       day.getUTCMonth() + 1
     )}/${pad2(day.getUTCDate())}`;
-    const res = await fetch(url, { headers: { Accept: "application/json", "User-Agent": UA } });
+    const res = await fetchWithTimeout(url, { headers: { Accept: "application/json", "User-Agent": UA } });
     if (res.ok) {
       const data = await res.json();
       const items = (data.items?.[0]?.articles || []).filter(
@@ -484,7 +553,7 @@ export async function searchArticles(query) {
       format: "json",
       origin: "*",
     });
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA } });
   if (!res.ok) throw new Error(`Search API ${res.status}`);
   const data = await res.json();
   return (data.query?.search || []).map((r) => ({
@@ -509,7 +578,7 @@ export async function getRandomArticles(limit = 20) {
       format: "json",
       origin: "*",
     });
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA } });
   if (!res.ok) throw new Error(`Random API ${res.status}`);
   const data = await res.json();
   return (data.query?.random || []).map((r) => ({
@@ -538,7 +607,7 @@ export async function getCategoryMembers(category, limit = 24) {
   // First, a cheap call just to learn the pool size, so we can jump to a
   // random offset into it - without this, every fetch (and every "Shuffle"
   // click) would draw from the same fixed top-500 relevance-ranked results.
-  const countRes = await fetch(
+  const countRes = await fetchWithTimeout(
     "https://en.wikipedia.org/w/api.php?" + new URLSearchParams({ ...baseParams, srlimit: "1" }),
     { headers: { "User-Agent": UA } }
   );
@@ -555,7 +624,7 @@ export async function getCategoryMembers(category, limit = 24) {
   const url =
     "https://en.wikipedia.org/w/api.php?" +
     new URLSearchParams({ ...baseParams, srlimit: String(limit), sroffset: String(offset) });
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA } });
   if (!res.ok) throw new Error(`Search API ${res.status}`);
   const data = await res.json();
   return (data.query?.search || []).map((r) => ({
@@ -585,7 +654,7 @@ export async function suggestCategories(query, limit = 8) {
       format: "json",
       origin: "*",
     });
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA } });
   if (!res.ok) throw new Error(`Prefixsearch API ${res.status}`);
   const data = await res.json();
   return (data.query?.prefixsearch || []).map((r) => r.title.replace(/^Category:/, ""));

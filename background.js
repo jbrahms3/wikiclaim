@@ -2,6 +2,7 @@ importScripts("lib/wiki.js");
 
 const ALARM_NAME = "wikiclaim-daily-sync";
 const STORAGE_KEY = "claims";
+const WIKIPICKS_BASE = "https://wikipicks.app";
 
 async function getClaims() {
   const { [STORAGE_KEY]: claims } = await chrome.storage.local.get(STORAGE_KEY);
@@ -100,6 +101,28 @@ async function unclaimArticle(key) {
   await setClaims(claims);
 }
 
+/**
+ * Real ownership/price/views for the currently-open article, straight from
+ * the WikiPicks multiplayer game (a separate system from this extension's
+ * own local claim/points tracking above). Public endpoint - no auth needed
+ * to read; claiming still requires signing in on wikipicks.app itself.
+ */
+async function fetchArticleInfo(article) {
+  const url = `${WIKIPICKS_BASE}/api/article?article=${encodeURIComponent(article)}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) {
+    let message = `WikiPicks API error ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      /* non-JSON error body - keep the generic message */
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(ALARM_NAME, { periodInMinutes: 240, delayInMinutes: 1 });
 });
@@ -135,6 +158,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "SYNC_NOW": {
         const claims = await syncAllClaims();
         sendResponse({ ok: true, claims, totalPoints: totalPointsOf(claims) });
+        break;
+      }
+      case "ARTICLE_INFO": {
+        try {
+          const info = await fetchArticleInfo(msg.payload.article);
+          sendResponse({ ok: true, info });
+        } catch (err) {
+          sendResponse({ ok: false, error: err.message || String(err) });
+        }
         break;
       }
       default:

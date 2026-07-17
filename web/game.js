@@ -156,16 +156,25 @@ export async function repairZeroSettlement(holding) {
 /** Settle every holding for a user. Returns total credits earned this pass. */
 export async function settleUser(userId) {
   const holdings = await store.holdingsForUser(userId);
-  let total = 0;
-  for (const h of holdings) {
-    try {
-      total += await repairZeroSettlement(h);
-      total += await settleHolding(h);
-    } catch (err) {
-      console.error("settle failed for", h.key, err);
-    }
-  }
-  return total;
+  // Settle all holdings concurrently rather than awaiting each in turn - a
+  // user with many pages otherwise pays for N sequential Wikimedia round
+  // trips before the portfolio (and therefore /api/me) can return. Repair
+  // must still precede settle for the *same* holding, but holdings are
+  // independent of one another; downstream fetches stay throttled by
+  // withPageviewsLimit, and each holding's credit update is atomic.
+  const earned = await Promise.all(
+    holdings.map(async (h) => {
+      try {
+        const repaired = await repairZeroSettlement(h);
+        const settled = await settleHolding(h);
+        return repaired + settled;
+      } catch (err) {
+        console.error("settle failed for", h.key, err);
+        return 0;
+      }
+    })
+  );
+  return earned.reduce((sum, n) => sum + n, 0);
 }
 
 /**
@@ -181,21 +190,35 @@ export async function portfolio(userId) {
   // holdings this user owns - no need to filter by seller separately.
   const listingById = new Map((await store.allActiveListings()).map((l) => [l.id, l]));
 
+  const latestSettledDate = fmtDate(latestAvailableDate());
+
+  // Price every holding concurrently instead of awaiting them one-by-one -
+  // the sequential version made this loop cost N round trips (a DB cache hit
+  // at best, a full year-pageview fetch on a cold cache), which is the bulk
+  // of what made /api/me slow to return. Wikimedia calls stay throttled by
+  // withPageviewsLimit downstream.
+  const prices = await Promise.all(
+    holdings.map(async (h) => {
+      // allowStale: serve the last cached price instantly and refresh in the
+      // background. Every owned page was priced at purchase, so this loop
+      // never blocks on a live fetch during normal use - it just reads the
+      // DB. If pricing is temporarily unavailable, show the last verified
+      // price (what they paid) instead of a bogus 1.
+      try {
+        const p = await getPagePrice(h.project, h.article, { allowStale: true });
+        return p.unpriced ? null : p;
+      } catch {
+        return null; // treat as unpriced
+      }
+    })
+  );
+
   const items = [];
   let holdingsValue = 0;
   let todayEarnings = 0;
   let totalEarned = 0;
-  const latestSettledDate = fmtDate(latestAvailableDate());
-  for (const h of holdings) {
-    // If pricing is temporarily unavailable, show the last verified price
-    // (what they paid) instead of a bogus 1 - it self-corrects within minutes.
-    let price = null;
-    try {
-      const p = await getPagePrice(h.project, h.article);
-      if (!p.unpriced) price = p;
-    } catch {
-      /* treat as unpriced */
-    }
+  holdings.forEach((h, i) => {
+    const price = prices[i];
     const current = price ? price.annualPrice : h.purchasePrice;
     holdingsValue += current;
     // This is persisted from the successful settlement itself. Live/cached
@@ -221,7 +244,7 @@ export async function portfolio(userId) {
       purchasedDate: h.purchasedDate,
       listing: listingById.has(h.id) ? { askPrice: listingById.get(h.id).askPrice } : null,
     });
-  }
+  });
   items.sort((a, b) => b.currentPrice - a.currentPrice);
 
   return {
@@ -693,13 +716,18 @@ async function resolveBetIfDue(bet) {
 /** Resolve every past-due open bet for a user. Call before reading bets/credits. */
 export async function settleBets(userId) {
   const open = await store.betsForUser(userId, "open");
-  for (const b of open) {
-    try {
-      await resolveBetIfDue(b);
-    } catch (err) {
-      console.error("bet resolution failed for", b.id, err);
-    }
-  }
+  // Resolve concurrently - same reasoning as settleUser: bets are
+  // independent and each due one may hit Wikimedia, so awaiting them
+  // in sequence needlessly serializes those round trips.
+  await Promise.all(
+    open.map(async (b) => {
+      try {
+        await resolveBetIfDue(b);
+      } catch (err) {
+        console.error("bet resolution failed for", b.id, err);
+      }
+    })
+  );
 }
 
 /** Open bets (with a live current view count for an in-progress win/loss read) + recent history. */

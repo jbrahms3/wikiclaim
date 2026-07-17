@@ -68,7 +68,19 @@ async function api(path, opts = {}) {
   }
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(path, { headers, ...opts });
+  // Without a timeout, a slow/stalled backend call (e.g. one that's waiting
+  // on Wikimedia) leaves callers like signInSucceeded() awaiting forever -
+  // "Checking your session..." never resolves either way. Fail fast so
+  // every caller's existing error handling actually gets a chance to run.
+  let res;
+  try {
+    res = await fetch(path, { headers, ...opts, signal: AbortSignal.timeout(15000) });
+  } catch (e) {
+    if (e.name === "TimeoutError" || e.name === "AbortError") {
+      throw new Error("Request timed out - the server is taking too long to respond.");
+    }
+    throw e;
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Request failed");
   return data;
@@ -857,6 +869,8 @@ function feedItemHtml(ev) {
     text = `${user}'s prediction on <b>${title}</b> paid out ${fmt(ev.amount)} pts`;
   } else if (ev.type === "resale") {
     text = `${user} bought <b>${title}</b> on the secondary market for ${fmt(ev.amount)} pts`;
+  } else if (ev.type === "earn") {
+    text = `${user} earned ${fmt(ev.amount)} pts from <b>${title}</b>`;
   } else {
     text = `${user} did something`;
   }
