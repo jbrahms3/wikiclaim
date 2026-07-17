@@ -217,14 +217,25 @@ export async function portfolio(userId) {
   let holdingsValue = 0;
   let todayEarnings = 0;
   let totalEarned = 0;
+  // lastSettledDate < latestSettledDate means this holding has an elapsed day
+  // it's eligible to earn for, but settlement hasn't credited it yet - almost
+  // always because Wikimedia hasn't published that day's numbers for this
+  // article yet (publish lag isn't uniform across articles - some land hours
+  // before others). That's a "we don't know yet", not "you earned nothing" -
+  // todayEarningsPending lets the frontend show "Pending" instead of a
+  // misleadingly-final 0 during that window.
+  let todayEarningsPending = false;
   holdings.forEach((h, i) => {
     const price = prices[i];
     const current = price ? price.annualPrice : h.purchasePrice;
     holdingsValue += current;
     // This is persisted from the successful settlement itself. Live/cached
     // readership belongs in latestViews; it must never masquerade as points.
-    todayEarnings +=
-      h.lastSettledDate >= latestSettledDate ? h.latestEarned || 0 : 0;
+    if (h.lastSettledDate >= latestSettledDate) {
+      todayEarnings += h.latestEarned || 0;
+    } else {
+      todayEarningsPending = true;
+    }
     totalEarned += h.totalEarned || 0;
     items.push({
       id: h.id,
@@ -252,6 +263,7 @@ export async function portfolio(userId) {
     holdings: items,
     holdingsValue,
     todayEarnings,
+    todayEarningsPending,
     totalEarned,
     netWorth: user.credits + holdingsValue,
   };

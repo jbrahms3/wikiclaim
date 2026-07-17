@@ -2,6 +2,17 @@ const $ = (sel) => document.querySelector(sel);
 const fmt = (n) => Math.round(n || 0).toLocaleString("en-US");
 const initials = (s) => (s || "?").trim().slice(0, 1).toUpperCase();
 
+// Right after each UTC day rolls over, some (not necessarily all) holdings
+// haven't been credited for it yet - almost always because Wikimedia hasn't
+// published that article's numbers yet (see todayEarningsPending in
+// game.js's portfolio()). That's "we don't know yet", not "you earned
+// nothing" - showing "Pending" instead of "+0" keeps the lag window from
+// reading as a real, final zero.
+function todayEarningsText(me) {
+  if (me.todayEarningsPending && me.todayEarnings === 0) return "Pending";
+  return `+${fmt(me.todayEarnings)}`;
+}
+
 const state = {
   user: null,
   me: null,
@@ -576,7 +587,7 @@ function renderChrome() {
   if (!me) return;
   $("#side-credits").textContent = fmt(me.user.credits);
   $("#hdr-networth").textContent = fmt(me.netWorth);
-  $("#hdr-today").textContent = `+${fmt(me.todayEarnings)}`;
+  $("#hdr-today").textContent = todayEarningsText(me);
   $("#hdr-username").textContent = me.user.username;
   $("#hdr-avatar").textContent = initials(me.user.username);
   $("#side-username").textContent = me.user.username;
@@ -690,14 +701,15 @@ function renderOverview() {
 
   if (!me) return;
 
-  $("#ov-chart-value").textContent = fmt(me.todayEarnings);
+  $("#ov-chart-value").textContent =
+    me.todayEarningsPending && me.todayEarnings === 0 ? "Pending" : fmt(me.todayEarnings);
 
   const rank = me.rank ? `#${me.rank} of ${me.totalPlayers}` : "—";
   $("#metric-stack").innerHTML = [
     ["Portfolio Value", fmt(me.netWorth)],
     ["Wiki Points", fmt(me.user.credits)],
     ["Total Earned", `+${fmt(me.totalEarned)}`],
-    ["Today's Earnings", `+${fmt(me.todayEarnings)}`],
+    ["Today's Earnings", todayEarningsText(me)],
     ["Articles Owned", String(me.holdings.length)],
     ["Avg Daily Views", fmt(me.holdingsValue)],
     ["Portfolio Rank", rank],
