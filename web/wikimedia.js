@@ -235,7 +235,13 @@ const inflightPrices = new Map(); // key -> Promise<entry>
 export async function getPagePrice(project, article, { force = false, allowStale = false } = {}) {
   const key = pageKey(project, article);
   const cached = await store.getPageCache(key);
-  const ttl = cached && looksEmpty(cached) ? EMPTY_CACHE_MS : PRICE_CACHE_MS;
+  // pendingLatest means the newest day wasn't published yet AT FETCH TIME -
+  // that can resolve minutes to hours later (see the publish-lag monitor),
+  // so locking it in for the full 6h TTL means an article that gets checked
+  // early in the lag window can show stale "pending" for hours after
+  // Wikimedia actually publishes. Same short TTL as looksEmpty, and for the
+  // same reason: this result isn't trustworthy for the long term.
+  const ttl = cached && (looksEmpty(cached) || cached.pendingLatest) ? EMPTY_CACHE_MS : PRICE_CACHE_MS;
   if (!force && cached && Date.now() - cached.updatedAt < ttl) {
     return withDerived(cached);
   }
