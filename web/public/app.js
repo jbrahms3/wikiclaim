@@ -156,11 +156,19 @@ function sparkSvg(values, changePct) {
   return `<svg class="sparkline" viewBox="0 0 ${w} ${h}"><polyline class="${cls}" points="${pts}" /></svg>`;
 }
 
+const SHORT_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
 function formatShortDate(yyyymmdd) {
   const m = Number(yyyymmdd.slice(4, 6)) - 1;
   const d = Number(yyyymmdd.slice(6, 8));
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${months[m]} ${d}`;
+  return `${SHORT_MONTHS[m]} ${d}`;
+}
+
+// Same short "Mon D" format as formatShortDate, but for a ms timestamp
+// (placedAt/resolvedAt) rather than a YYYYMMDD date string.
+function formatShortDateFromTs(ts) {
+  const d = new Date(ts);
+  return `${SHORT_MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
 function formatCountdown(resolvesAt) {
@@ -1379,6 +1387,7 @@ function renderPredictionsPage() {
           <div class="cell-title">${escapeHtml(b.displayTitle)}</div>
         </div>
       </td>
+      <td class="cell-sub">${formatShortDateFromTs(b.placedAt)}</td>
       <td>${b.direction === "up" ? "▲ Up" : "▼ Down"}</td>
       <td class="num">${fmt(b.stake)}</td>
       <td class="num">${fmt(b.startViews)} → ${fmt(b.currentViews)}</td>
@@ -1403,6 +1412,7 @@ function renderPredictionsPage() {
           <div class="cell-title">${escapeHtml(b.displayTitle)}</div>
         </div>
       </td>
+      <td class="cell-sub">${formatShortDateFromTs(b.resolvedAt)}</td>
       <td>${b.direction === "up" ? "▲ Up" : "▼ Down"}</td>
       <td class="num">${fmt(b.stake)}</td>
       <td class="num">${fmt(b.startViews)} → ${fmt(b.endViews)}</td>
