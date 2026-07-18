@@ -127,24 +127,14 @@ function thumbHtml(item, cls = "thumb") {
   /><span class="${cls}" style="display:none">${escapeHtml(initials(item.displayTitle || item.title))}</span></span>`;
 }
 
-// Wikimedia hasn't published the latest day's numbers yet (its 1-day lag
-// isn't perfectly exact) - approximate "when" as the next UTC day boundary,
-// which is roughly when a new day's data starts becoming available.
-function resultsInText() {
-  const now = Date.now();
-  const nextUTCMidnight = Date.UTC(
-    new Date().getUTCFullYear(),
-    new Date().getUTCMonth(),
-    new Date().getUTCDate() + 1
-  );
-  const ms = nextUTCMidnight - now;
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  return `Results in ${h}h ${m}m`;
-}
+// Wikimedia's publish lag isn't a fixed, predictable duration (it can be
+// anywhere from a couple hours to most of a day - see the lag-consistency
+// monitor) - a specific countdown here would just be fabricated precision
+// about something we genuinely don't know yet.
+const RESULTS_PENDING_TEXT = "Results pending";
 
 function badgeHtml(changePct, pendingLatest) {
-  if (pendingLatest) return `<span class="badge pending">${resultsInText()}</span>`;
+  if (pendingLatest) return `<span class="badge pending">${RESULTS_PENDING_TEXT}</span>`;
   if (changePct == null) return "";
   const up = changePct >= 0;
   return `<span class="badge ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${Math.abs(changePct)}%</span>`;
@@ -812,7 +802,7 @@ function miniRow(item) {
   const li = document.createElement("li");
   const up = (item.changePct || 0) >= 0;
   const changeHtml = item.pendingLatest
-    ? `<div class="mini-change">${resultsInText()}</div>`
+    ? `<div class="mini-change">${RESULTS_PENDING_TEXT}</div>`
     : `<div class="mini-change ${up ? "pos" : "neg"}">${up ? "+" : ""}${item.changePct ?? 0}%</div>`;
   li.innerHTML = `
     ${thumbHtml(item)}
@@ -1499,7 +1489,7 @@ async function renderArticlePage(article) {
   const changeEl = $("#det-change");
   if (d.pendingLatest) {
     changeEl.className = "badge pending";
-    changeEl.textContent = resultsInText();
+    changeEl.textContent = RESULTS_PENDING_TEXT;
   } else if (d.changePct == null) {
     changeEl.className = "badge";
     changeEl.textContent = "";
@@ -1593,7 +1583,7 @@ function renderDetailStats() {
   const rows = [
     ["Market price", d.price == null ? "—" : `${fmt(d.price)} pts`],
     ["Views (last day)", d.latestViews == null ? "—" : fmt(d.latestViews)],
-    ["Vs yesterday", d.pendingLatest ? resultsInText() : d.changePct == null ? "—" : `${d.changePct >= 0 ? "+" : ""}${d.changePct}%`],
+    ["Vs yesterday", d.pendingLatest ? RESULTS_PENDING_TEXT : d.changePct == null ? "—" : `${d.changePct >= 0 ? "+" : ""}${d.changePct}%`],
     ["Status", d.holding
       ? "In your portfolio"
       : d.owned
