@@ -45,6 +45,10 @@ const state = {
   moversTab: "trending",
   marketTab: "primary",
   chartSeq: 0,
+  ptsRange: "day", // "day" | "week" | "month" - see EARNINGS_BUCKETERS
+  pointsHistory: null, // raw earn events from /api/points, re-bucketed client-side on range change
+  overviewChartHistory: null,
+  detailChartHistory: null,
 };
 
 // Curated starting points for category browsing - real Wikipedia category
@@ -187,10 +191,16 @@ function relTime(ts) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-/** Smooth line + gradient area chart. gradId must be unique per chart slot. */
-function bigChartSvg(history, gradId) {
+/**
+ * Smooth line + gradient area chart. gradId must be unique per chart slot.
+ * width/height should match the container's actual rendered size - the SVG
+ * uses preserveAspectRatio="none" to fill it exactly, so a mismatched
+ * viewBox (a fixed guess, rather than the real box) stretches the curve on
+ * wide screens. See chartDims, which measures the real container.
+ */
+function bigChartSvg(history, gradId, width = 720, height = 250) {
   if (!history || !history.length) return "";
-  const W = 720, H = 250, padL = 46, padR = 12, padT = 12, padB = 24;
+  const W = width, H = height, padL = 46, padR = 12, padT = 12, padB = 24;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const values = history.map((d) => d.views);
   const maxV = Math.max(1, ...values);
@@ -238,6 +248,14 @@ function bigChartSvg(history, gradId) {
       <text class="chart-axis-label" x="${padL}" y="${H - 6}">${formatShortDate(history[0].date)}</text>
       <text class="chart-axis-label" x="${W - padR}" y="${H - 6}" text-anchor="end">${formatShortDate(history[n - 1].date)}</text>
     </svg>`;
+}
+
+// The real rendered size of a chart container, for bigChartSvg's width/
+// height params. Falls back to the old fixed guess only if the container
+// somehow reports zero size (e.g. measured before layout settles).
+function chartDims(holderId) {
+  const rect = $(`#${holderId}`).getBoundingClientRect();
+  return { width: rect.width || 720, height: rect.height || 250 };
 }
 
 /* ================= auth (Clerk) ================= */
@@ -787,8 +805,10 @@ async function loadOverviewChart() {
   try {
     const { history } = await api(`/api/portfolio-history?days=${state.ovDays}`);
     if (seq !== state.chartSeq) return;
+    state.overviewChartHistory = history; // for a resize redraw with no refetch
+    const dims = chartDims("ov-chart");
     holder.innerHTML = history.length
-      ? bigChartSvg(history, "gradOverview")
+      ? bigChartSvg(history, "gradOverview", dims.width, dims.height)
       : `<div class="chart-empty">No readership data yet — check back tomorrow.</div>`;
   } catch {
     if (seq === state.chartSeq)
@@ -926,6 +946,44 @@ function bucketEarningsByDay(history) {
     .map(([date, views]) => ({ date, views }));
 }
 
+// Same idea as bucketEarningsByDay, but grouped into Monday-start weeks -
+// keyed by that week's Monday so it sorts/labels the same way (formatShortDate
+// just reads YYYYMMDD).
+function bucketEarningsByWeek(history) {
+  const totals = new Map();
+  for (const ev of history) {
+    const d = new Date(ev.ts);
+    const day = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const mondayOffset = (day.getUTCDay() + 6) % 7; // getUTCDay(): 0=Sun..6=Sat -> 0=Mon..6=Sun
+    const monday = new Date(day.getTime() - mondayOffset * 86400000);
+    const key = `${monday.getUTCFullYear()}${String(monday.getUTCMonth() + 1).padStart(2, "0")}${String(monday.getUTCDate()).padStart(2, "0")}`;
+    totals.set(key, (totals.get(key) || 0) + (ev.amount || 0));
+  }
+  return [...totals.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([date, views]) => ({ date, views }));
+}
+
+// Grouped by calendar month, keyed to the 1st (so it's still a valid
+// YYYYMMDD for formatShortDate's axis labels - shown as e.g. "Jul 1").
+function bucketEarningsByMonth(history) {
+  const totals = new Map();
+  for (const ev of history) {
+    const d = new Date(ev.ts);
+    const key = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}01`;
+    totals.set(key, (totals.get(key) || 0) + (ev.amount || 0));
+  }
+  return [...totals.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([date, views]) => ({ date, views }));
+}
+
+const EARNINGS_BUCKETERS = {
+  day: bucketEarningsByDay,
+  week: bucketEarningsByWeek,
+  month: bucketEarningsByMonth,
+};
+
 function updateProgressBar(credits, goal) {
   const pct = Math.min(100, (credits / goal) * 100);
   const fill = $("#pts-progress-fill");
@@ -937,6 +995,34 @@ function updateProgressBar(credits, goal) {
       ? "🎉 You've passed 1,000,000 points — you've earned a $100 gift card!"
       : `${pct < 1 ? pct.toFixed(2) : Math.round(pct)}% of the way to 1,000,000 pts`;
 }
+
+// Re-buckets the already-fetched raw earning events per state.ptsRange and
+// redraws the chart - no network call, so the Daily/Weekly/Monthly toggle
+// (and a window resize) can call this directly.
+function renderPointsChart() {
+  const holder = $("#pts-chart");
+  const history = state.pointsHistory;
+  if (!history) return; // nothing fetched yet
+  const series = EARNINGS_BUCKETERS[state.ptsRange](history);
+  const total = series.reduce((s, d) => s + d.views, 0);
+  $("#pts-chart-value").textContent = `+${fmt(total)}`;
+  if (!series.length) {
+    holder.innerHTML = `<div class="chart-empty">No earnings yet — buy an article to start earning.</div>`;
+    return;
+  }
+  const dims = chartDims("pts-chart");
+  holder.innerHTML = bigChartSvg(series, "gradPoints", dims.width, dims.height);
+}
+
+$("#pts-range-tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".pill-tab");
+  if (!tab) return;
+  state.ptsRange = tab.dataset.range;
+  $("#pts-range-tabs").querySelectorAll(".pill-tab").forEach((t) =>
+    t.classList.toggle("active", t === tab)
+  );
+  renderPointsChart();
+});
 
 async function renderPointsPage() {
   $("#points-signedout").hidden = !authIsSignedOut();
@@ -971,12 +1057,8 @@ async function renderPointsPage() {
     renderChrome();
   }
 
-  const series = bucketEarningsByDay(data.history);
-  const total = series.reduce((s, d) => s + d.views, 0);
-  $("#pts-chart-value").textContent = `+${fmt(total)}`;
-  holder.innerHTML = series.length
-    ? bigChartSvg(series, "gradPoints")
-    : `<div class="chart-empty">No earnings yet — buy an article to start earning.</div>`;
+  state.pointsHistory = data.history; // raw earn events, for the range toggle + a resize redraw with no refetch
+  renderPointsChart();
 
   $("#points-history-empty").hidden = data.history.length > 0;
   $("#points-history-table").hidden = data.history.length === 0;
@@ -1630,8 +1712,10 @@ async function loadDetailChart() {
       `/api/history?article=${encodeURIComponent(d.article)}&days=${state.detDays}`
     );
     if (seq !== state.chartSeq) return;
+    state.detailChartHistory = history; // for a resize redraw with no refetch
+    const dims = chartDims("det-chart");
     holder.innerHTML = history.length
-      ? bigChartSvg(history, "gradDetail")
+      ? bigChartSvg(history, "gradDetail", dims.width, dims.height)
       : `<div class="chart-empty">No readership data for this article.</div>`;
   } catch {
     if (seq === state.chartSeq)
@@ -1938,6 +2022,28 @@ async function toggleWatch(article, displayTitle) {
     toast(err.message, true);
   }
 }
+
+// Charts are drawn to fill their container's exact size at render time (see
+// chartDims) - a window resize changes that size, so without this a chart
+// drawn before the resize stays stretched relative to its now-wrong viewBox.
+// Redraws from already-fetched data - no network call - and only for
+// whichever chart is actually on screen right now.
+let resizeRedrawTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeRedrawTimer);
+  resizeRedrawTimer = setTimeout(() => {
+    const page = state.route.page;
+    if (page === "overview" && state.overviewChartHistory?.length) {
+      const dims = chartDims("ov-chart");
+      $("#ov-chart").innerHTML = bigChartSvg(state.overviewChartHistory, "gradOverview", dims.width, dims.height);
+    } else if (page === "points") {
+      renderPointsChart();
+    } else if (page === "article" && state.detailChartHistory?.length) {
+      const dims = chartDims("det-chart");
+      $("#det-chart").innerHTML = bigChartSvg(state.detailChartHistory, "gradDetail", dims.width, dims.height);
+    }
+  }, 150);
+});
 
 /* ================= boot ================= */
 
