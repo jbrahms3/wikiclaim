@@ -403,7 +403,7 @@ async function signInSucceeded(clerkUser) {
   renderAuthChrome();
   renderRoute();
   try {
-    const ok = await loadMe();
+    const ok = await loadMeWithRetry();
     if (!ok) {
       state.authStatus = "error";
       renderAuthChrome();
@@ -546,6 +546,28 @@ async function loadMe() {
   state.me = me;
   renderChrome();
   return true;
+}
+
+// A cold server (Railway spinning up after being idle, or the first
+// post-deploy request needing to live-price every article in someone's
+// portfolio before anything's cached) can genuinely take longer than a
+// single request should wait - api()'s 15s timeout can cut that off even
+// though the server would have come back fine a few seconds later. Without
+// this, the only way to recover was to notice the error and manually
+// refresh; a couple of automatic retries means a transient cold-start
+// self-heals instead of surfacing as a hard failure.
+async function loadMeWithRetry(maxAttempts = 3, delaysMs = [1000, 2000]) {
+  let lastErr = null;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      if (await loadMe()) return true;
+    } catch (err) {
+      lastErr = err;
+    }
+    if (i < maxAttempts - 1) await new Promise((r) => setTimeout(r, delaysMs[i] ?? 2000));
+  }
+  if (lastErr) throw lastErr;
+  return false; // exhausted retries with no thrown error - a real no-token/misconfig case
 }
 
 function loadSecondary() {
