@@ -20,6 +20,8 @@ import {
   portfolio,
   portfolioHistory,
   buyPage,
+  openLootBox,
+  LOOTBOX_COST,
   leaderboard,
   recentActivity,
   logEvent,
@@ -571,6 +573,26 @@ app.post(
       displayTitle,
       lang: "en",
     });
+    res.json({ ...result, portfolio: await portfolio(req.userId) });
+  })
+);
+
+// Loot box: pay a flat fee for a random unclaimed article - see
+// openLootBox in game.js for why the fee has no relation to the article's
+// real value.
+app.get(
+  "/api/lootbox",
+  wrap(async (req, res) => {
+    res.json({ cost: LOOTBOX_COST });
+  })
+);
+
+app.post(
+  "/api/lootbox",
+  requireAuth,
+  forcedFetchLimiter,
+  wrap(async (req, res) => {
+    const result = await openLootBox(req.userId);
     res.json({ ...result, portfolio: await portfolio(req.userId) });
   })
 );

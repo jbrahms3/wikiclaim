@@ -14,6 +14,7 @@ import {
   addDaysUTC,
   parseDate,
   formatYYYYMMDD,
+  getRandomArticles,
 } from "./wikimedia.js";
 
 // Price = yearly daily-view average + a recency premium (last 30 days'
@@ -475,6 +476,78 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
   }
   await logEvent(userId, "claim", { article, displayTitle, amount: cost });
   return { holding, cost, creditsLeft };
+}
+
+/**
+ * Loot box: pay a flat fee for a random, currently-unclaimed Wikipedia
+ * article instead of picking one deliberately. Unlike buyPage, the price
+ * paid has no relation to the article's actual value - that mismatch (walk
+ * away with an obscure stub, or a page worth many times the fee) is the
+ * entire point. The holding's purchasePrice is recorded as the flat fee, not
+ * the article's real price, so the portfolio's gain/loss immediately
+ * reflects how the roll went.
+ */
+export const LOOTBOX_COST = 5000;
+
+// Wikipedia's random endpoint can hand back an article someone already
+// claimed, or one Wikimedia can't currently price - retry with a fresh
+// random pick rather than fail the whole box on the first miss.
+const LOOTBOX_MAX_ATTEMPTS = 8;
+
+export async function openLootBox(userId) {
+  const creditsLeft = await store.tryDebit(userId, LOOTBOX_COST);
+  if (creditsLeft === null) {
+    const user = await store.getUser(userId);
+    throw new Error(
+      `Not enough credits: a loot box costs ${LOOTBOX_COST}, you have ${user ? user.credits : 0}.`
+    );
+  }
+
+  for (let attempt = 0; attempt < LOOTBOX_MAX_ATTEMPTS; attempt++) {
+    const [candidate] = await getRandomArticles(1);
+    if (!candidate) continue;
+    if (await store.findAnyHolding("en.wikipedia", candidate.article)) continue;
+
+    let price;
+    try {
+      price = await getPagePrice("en.wikipedia", candidate.article, { force: true });
+    } catch {
+      continue;
+    }
+    if (price.unpriced) continue;
+
+    const today = fmtDate(latestAvailableDate());
+    const holding = {
+      id: uid(),
+      userId,
+      project: "en.wikipedia",
+      article: candidate.article,
+      displayTitle: candidate.title,
+      lang: "en",
+      key: `en.wikipedia::${candidate.article}`,
+      purchasePrice: LOOTBOX_COST,
+      purchasedDate: today,
+      lastSettledDate: today,
+      totalEarned: 0,
+      latestEarned: 0,
+      earningsRepaired: true,
+    };
+    const created = await store.createHoldingIfUnowned(holding);
+    if (!created) continue; // lost a race to a concurrent claimant - try another article
+
+    await logEvent(userId, "lootbox", {
+      article: candidate.article,
+      displayTitle: candidate.title,
+      amount: LOOTBOX_COST,
+    });
+    return { holding, cost: LOOTBOX_COST, marketValue: price.annualPrice, creditsLeft };
+  }
+
+  // Never landed on a claimable article - refund rather than charge for nothing.
+  await store.addCredits(userId, LOOTBOX_COST);
+  throw new Error(
+    "Couldn't find an unclaimed article to give you right now. Your credits have been refunded - try again."
+  );
 }
 
 export async function logEvent(userId, type, { article, displayTitle, amount } = {}) {

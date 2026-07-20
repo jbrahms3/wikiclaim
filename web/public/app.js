@@ -313,6 +313,7 @@ function renderAuthChrome() {
     "points-signin-btn": "Sign In",
     "watchlist-signin-btn": "Sign In",
     "predictions-signin-btn": "Sign In",
+    "lootbox-signin-btn": "Sign In",
   };
   for (const [id, readyLabel] of Object.entries(buttonLabels)) {
     const button = $(`#${id}`);
@@ -487,6 +488,7 @@ $("#ov-signin-btn").addEventListener("click", ensureSignedIn);
 $("#points-signin-btn").addEventListener("click", ensureSignedIn);
 $("#watchlist-signin-btn").addEventListener("click", ensureSignedIn);
 $("#predictions-signin-btn").addEventListener("click", ensureSignedIn);
+$("#lootbox-signin-btn").addEventListener("click", ensureSignedIn);
 
 /* ================= username modal ================= */
 // Every newly-provisioned account starts with an auto-generated placeholder
@@ -749,7 +751,7 @@ function renderTicker() {
 
 /* ================= router ================= */
 
-const PAGES = ["overview", "points", "market", "discover", "watchlist", "predictions", "leaderboard", "activity", "about", "article"];
+const PAGES = ["overview", "points", "market", "lootbox", "discover", "watchlist", "predictions", "leaderboard", "activity", "about", "article"];
 
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, "");
@@ -781,6 +783,7 @@ function renderRoute() {
   if (page === "overview") renderOverview();
   else if (page === "points") renderPointsPage();
   else if (page === "market") renderMarket();
+  else if (page === "lootbox") renderLootboxPage();
   else if (page === "discover") renderDiscoverPage();
   else if (page === "watchlist") renderWatchlistPage();
   else if (page === "predictions") renderPredictionsPage();
@@ -1014,6 +1017,8 @@ function feedItemHtml(ev) {
     text = `${user}'s prediction on <b>${title}</b> paid out ${fmt(ev.amount)} pts`;
   } else if (ev.type === "resale") {
     text = `${user} bought <b>${title}</b> on the secondary market for ${fmt(ev.amount)} pts`;
+  } else if (ev.type === "lootbox") {
+    text = `${user} opened a loot box and got <b>${title}</b>`;
   } else if (ev.type === "earn") {
     text = `${user} earned ${fmt(ev.amount)} pts from <b>${title}</b>`;
   } else {
@@ -1914,6 +1919,69 @@ async function performBuy(r, btn) {
     }
   }
 }
+
+/* ================= loot box ================= */
+
+let lootboxCost = 5000; // refreshed from /api/lootbox; this is just the initial guess shown before that resolves
+
+function renderLootboxPage() {
+  $("#lootbox-signedout").hidden = !authIsSignedOut();
+  $("#lootbox-content").hidden = !state.user;
+  $("#lootbox-error").hidden = true;
+  $("#lootbox-result").hidden = true;
+  if (!state.user) return;
+
+  $("#lootbox-cost").textContent = `${fmt(lootboxCost)} pts`;
+  if (state.me) $("#lootbox-balance").textContent = fmt(state.me.user.credits);
+
+  const btn = $("#lootbox-open-btn");
+  btn.disabled = false;
+  btn.textContent = "Open Loot Box";
+}
+
+api("/api/lootbox")
+  .then((res) => {
+    lootboxCost = res.cost;
+    if (state.route.page === "lootbox") $("#lootbox-cost").textContent = `${fmt(lootboxCost)} pts`;
+  })
+  .catch(() => {});
+
+$("#lootbox-open-btn").addEventListener("click", async () => {
+  if (!ensureSignedIn()) return;
+  const btn = $("#lootbox-open-btn");
+  const box = $("#lootbox-box");
+  btn.disabled = true;
+  btn.textContent = "Opening…";
+  $("#lootbox-error").hidden = true;
+  $("#lootbox-result").hidden = true;
+  box.classList.add("lootbox-shake");
+  try {
+    const res = await api("/api/lootbox", { method: "POST" });
+    const h = res.holding;
+    $("#lootbox-result-title").textContent = h.displayTitle;
+    const diff = res.marketValue - res.cost;
+    const diffText =
+      diff > 0
+        ? `worth ${fmt(res.marketValue)} pts — ${fmt(diff)} pts more than you paid`
+        : diff < 0
+          ? `worth ${fmt(res.marketValue)} pts — ${fmt(-diff)} pts less than you paid`
+          : `worth exactly what you paid`;
+    $("#lootbox-result-detail").textContent = `Paid ${fmt(res.cost)} pts. This article is ${diffText}.`;
+    $("#lootbox-result-view").href = `https://en.wikipedia.org/wiki/${h.article}`;
+    $("#lootbox-result-portfolio").href = `#/article/${encodeURIComponent(h.article)}`;
+    $("#lootbox-result").hidden = false;
+    toast(`Claimed "${h.displayTitle}" from your loot box.`);
+    await refreshAfterTrade();
+    if (state.me) $("#lootbox-balance").textContent = fmt(state.me.user.credits);
+  } catch (err) {
+    $("#lootbox-error").textContent = err.message;
+    $("#lootbox-error").hidden = false;
+  } finally {
+    box.classList.remove("lootbox-shake");
+    btn.disabled = false;
+    btn.textContent = "Open Loot Box";
+  }
+});
 
 /* ================= list-price modal ================= */
 // Replaces a native prompt() with an in-app modal for choosing an asking
