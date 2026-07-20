@@ -44,6 +44,13 @@
       .join("")}</div>`;
   }
 
+  function increaseText(h) {
+    if (h.dayBeforeViews == null || h.latestViews == null) return "Not enough history";
+    const pctText = h.increasePct == null ? "" : ` (${h.increasePct >= 0 ? "+" : ""}${h.increasePct}%)`;
+    const sign = h.increaseAmount >= 0 ? "+" : "";
+    return `${fmt(h.dayBeforeViews)} → ${fmt(h.latestViews)} (${sign}${fmt(h.increaseAmount)}${pctText})`;
+  }
+
   function rowHtml(h) {
     return `
       <tr data-id="${escapeHtml(h.holdingId)}">
@@ -51,7 +58,13 @@
         <td><a href="${escapeHtml(h.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(h.displayTitle)}</a></td>
         <td class="num">${fmt(h.escrowedEarned)}</td>
         <td class="num">${h.escrowStreakDays}d</td>
-        <td>${viewsStripHtml(h.recentViews)}</td>
+        <td>
+          ${viewsStripHtml(h.recentViews)}
+          <div class="views-stats">
+            <div>Day before → latest: <strong>${increaseText(h)}</strong></div>
+            <div>7d avg: ${h.weekAvgViews == null ? "—" : fmt(h.weekAvgViews)} · 30d avg: ${h.monthAvgViews == null ? "—" : fmt(h.monthAvgViews)}</div>
+          </div>
+        </td>
         <td class="row-actions">
           <button class="btn-primary btn-sm" data-action="release">Release</button>
           <button class="btn-danger btn-sm" data-action="forfeit">Forfeit</button>

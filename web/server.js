@@ -667,9 +667,20 @@ app.get(
     const decorated = await Promise.all(
       holdings.map(async (h) => {
         const user = await store.getUser(h.userId);
-        // Recent daily views give the reviewer the actual evidence to judge
-        // by, without having to separately go look it up.
-        const recentViews = await getArticleHistory(h.project, h.article, 14).catch(() => []);
+        // 30 days gives the reviewer the actual evidence to judge by (day-
+        // before-vs-latest, plus real week/month averages) without having to
+        // separately go look it up. Missing/pending days are just absent
+        // (see getArticleHistory), not zero-filled.
+        const recentViews = await getArticleHistory(h.project, h.article, 30).catch(() => []);
+        const n = recentViews.length;
+        const latest = n ? recentViews[n - 1] : null;
+        const dayBefore = n >= 2 ? recentViews[n - 2] : null;
+        const increaseAmount = latest && dayBefore ? latest.views - dayBefore.views : null;
+        const increasePct =
+          latest && dayBefore && dayBefore.views > 0
+            ? Math.round((increaseAmount / dayBefore.views) * 1000) / 10
+            : null;
+        const avg = (arr) => (arr.length ? Math.round(arr.reduce((s, d) => s + d.views, 0) / arr.length) : null);
         return {
           holdingId: h.id,
           userId: h.userId,
@@ -681,6 +692,12 @@ app.get(
           escrowedEarned: h.escrowedEarned || 0,
           escrowStreakDays: h.escrowStreakDays || 0,
           recentViews,
+          latestViews: latest ? latest.views : null,
+          dayBeforeViews: dayBefore ? dayBefore.views : null,
+          increaseAmount,
+          increasePct,
+          weekAvgViews: avg(recentViews.slice(-7)),
+          monthAvgViews: avg(recentViews),
         };
       })
     );
