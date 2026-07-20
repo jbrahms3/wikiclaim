@@ -35,6 +35,11 @@ import {
   publicUser,
   ESCROW_FLAG_AMOUNT,
   ESCROW_FLAG_STREAK_DAYS,
+  listNotifications,
+  unreadNotificationCount,
+  markNotificationRead,
+  markAllNotificationsRead,
+  notifyEscrowResolved,
 } from "./game.js";
 import {
   searchArticles,
@@ -751,6 +756,7 @@ app.post(
   wrap(async (req, res) => {
     const result = await store.resolveEscrow(req.params.id, true);
     if (!result) throw new Error("Holding not found, or not currently flagged.");
+    await notifyEscrowResolved(result);
     res.json(result);
   })
 );
@@ -761,7 +767,37 @@ app.post(
   wrap(async (req, res) => {
     const result = await store.resolveEscrow(req.params.id, false);
     if (!result) throw new Error("Holding not found, or not currently flagged.");
+    await notifyEscrowResolved(result);
     res.json(result);
+  })
+);
+
+// --- Notification center (private per-user alerts; see game.js) ---
+app.get(
+  "/api/notifications",
+  requireAuth,
+  wrap(async (req, res) => {
+    const [notifications, unread] = await Promise.all([
+      listNotifications(req.userId, 30),
+      unreadNotificationCount(req.userId),
+    ]);
+    res.json({ notifications, unread });
+  })
+);
+
+app.post(
+  "/api/notifications/:id/read",
+  requireAuth,
+  wrap(async (req, res) => {
+    res.json(await markNotificationRead(req.userId, req.params.id));
+  })
+);
+
+app.post(
+  "/api/notifications/read-all",
+  requireAuth,
+  wrap(async (req, res) => {
+    res.json(await markAllNotificationsRead(req.userId));
   })
 );
 

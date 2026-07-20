@@ -237,6 +237,45 @@ a.side-card:hover { border-color: var(--accent); }
   stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
 }
 
+.notif-bell { position: relative; }
+.notif-bell-btn {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+  background: transparent; border: none; border-radius: 8px; cursor: pointer;
+  color: var(--text);
+}
+.notif-bell-btn:hover { background: var(--card); }
+.notif-bell-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.notif-badge {
+  position: absolute; top: 2px; right: 2px;
+  min-width: 15px; height: 15px; padding: 0 3px;
+  background: var(--red); color: #fff;
+  border-radius: 999px; font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+}
+.notif-panel {
+  position: absolute; top: calc(100% + 8px); right: 0;
+  width: 340px; max-height: 420px; overflow-y: auto;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); z-index: 40;
+}
+.notif-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+.notif-panel-head h3 { margin: 0; font-size: 14px; }
+.notif-list { list-style: none; margin: 0; padding: 0; }
+.notif-item { display: flex; gap: 10px; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+.notif-item:last-child { border-bottom: none; }
+.notif-item.unread { background: var(--accent-soft); cursor: pointer; }
+.notif-icon { font-size: 16px; line-height: 1.4; }
+.notif-body { flex: 1; min-width: 0; }
+.notif-text { font-size: 13px; line-height: 1.4; }
+.notif-time { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.notif-panel .empty { padding: 24px 16px; }
+
 .header-stats { display: flex; align-items: center; gap: 24px; margin-left: auto; }
 .hstat { display: flex; flex-direction: column; align-items: flex-end; }
 .hstat-label { font-size: 10.5px; color: var(--muted); font-weight: 600; }

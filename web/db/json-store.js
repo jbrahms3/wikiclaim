@@ -19,6 +19,7 @@ const EMPTY = {
   activity: [], // newest last; capped
   bets: {}, // id -> 24h directional price prediction, see game.js placeBet
   listings: {}, // id (== holding id) -> secondary market listing, see game.js listForSale
+  notifications: {}, // id -> private per-user alert, see game.js's notification helpers
 };
 
 // Records are flat objects; return shallow copies from reads so callers can't
@@ -246,7 +247,65 @@ export function createJsonStore() {
         if (u) u.credits += amount;
       }
       persist();
-      return { holdingId: id, userId: h.userId, article: h.article, amount, credited: !!credit };
+      return { holdingId: id, userId: h.userId, article: h.article, displayTitle: h.displayTitle, amount, credited: !!credit };
+    },
+
+    // --- notification center ---
+    // Mirrors pg-store's addOrIncrementNotification: fully synchronous with
+    // no await between the lookup and the write, so it's race-proof the same
+    // way the other atomic guards in this store are.
+    async addOrIncrementNotification(n) {
+      if (n.dedupKey) {
+        const existing = Object.values(db.notifications).find(
+          (x) => x.userId === n.userId && x.dedupKey === n.dedupKey
+        );
+        if (existing) {
+          existing.amount = (existing.amount || 0) + (n.amount || 0);
+          existing.read = false;
+          existing.updatedAt = n.ts;
+          persist();
+          return copy(existing);
+        }
+      }
+      const record = {
+        id: n.id,
+        userId: n.userId,
+        type: n.type,
+        amount: n.amount ?? null,
+        article: n.article ?? null,
+        displayTitle: n.displayTitle ?? null,
+        data: n.data || null,
+        dedupKey: n.dedupKey || null,
+        read: false,
+        createdAt: n.ts,
+        updatedAt: n.ts,
+      };
+      db.notifications[record.id] = record;
+      persist();
+      return copy(record);
+    },
+    async notificationsForUser(userId, limit = 30) {
+      return Object.values(db.notifications)
+        .filter((x) => x.userId === userId)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, limit)
+        .map(copy);
+    },
+    async unreadNotificationCount(userId) {
+      return Object.values(db.notifications).filter((x) => x.userId === userId && !x.read).length;
+    },
+    async markNotificationRead(id, userId) {
+      const n = db.notifications[id];
+      if (!n || n.userId !== userId) return false;
+      n.read = true;
+      persist();
+      return true;
+    },
+    async markAllNotificationsRead(userId) {
+      Object.values(db.notifications).forEach((n) => {
+        if (n.userId === userId) n.read = true;
+      });
+      persist();
     },
 
     // --- page price cache ---

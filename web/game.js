@@ -196,6 +196,19 @@ export async function settleHolding(holding) {
       amount: earned,
     });
   }
+  // Notify on latestEarned (just the most-recently-settled day's credit),
+  // not the full possibly-multi-day `earned` sum - this is what "today's
+  // earnings" means everywhere else in the app (see todayEarnings in
+  // portfolio()). Keyed by settledThrough so every holding that settles for
+  // the same day adds into one running per-user notification instead of
+  // spamming one per holding.
+  if (latestEarned > 0) {
+    await pushNotification(holding.userId, {
+      type: "daily-earnings",
+      amount: latestEarned,
+      dedupKey: `earn:${settledThrough}`,
+    });
+  }
   if (shouldFlag) {
     console.warn(
       `Holding ${holding.id} (${holding.article}) flagged for manual escrow review: ` +
@@ -570,6 +583,63 @@ export async function logEvent(userId, type, { article, displayTitle, amount } =
 
 export async function recentActivity(limit = 30) {
   return store.recentActivity(limit);
+}
+
+/**
+ * Notification center: private, per-user alerts (today's earnings, an
+ * escrow decision, ...) - distinct from recentActivity, which is a public
+ * feed of everyone's trades. Extensible by `type`; the frontend renders
+ * each type's text from amount/article/displayTitle/data (see notifText in
+ * public/app.js). Never lets a notification failure break the caller (a
+ * credit/settlement) that triggered it.
+ */
+async function pushNotification(userId, { type, amount = null, article = null, displayTitle = null, data = null, dedupKey = null }) {
+  try {
+    await store.addOrIncrementNotification({
+      id: uid(),
+      userId,
+      type,
+      amount,
+      article,
+      displayTitle,
+      data,
+      dedupKey,
+      ts: Date.now(),
+    });
+  } catch (err) {
+    console.error("notification failed:", err);
+  }
+}
+
+export async function listNotifications(userId, limit = 30) {
+  return store.notificationsForUser(userId, limit);
+}
+
+export async function unreadNotificationCount(userId) {
+  return store.unreadNotificationCount(userId);
+}
+
+export async function markNotificationRead(userId, id) {
+  const applied = await store.markNotificationRead(id, userId);
+  if (!applied) throw new Error("Notification not found.");
+  return { read: true };
+}
+
+export async function markAllNotificationsRead(userId) {
+  await store.markAllNotificationsRead(userId);
+  return { read: true };
+}
+
+/** Called after an admin resolves a flagged holding's escrow (release or
+ * forfeit) - see /api/admin/escrow/:id/release|forfeit in server.js. */
+export async function notifyEscrowResolved({ userId, article, displayTitle, amount, credited }) {
+  if (amount <= 0) return;
+  await pushNotification(userId, {
+    type: credited ? "escrow-released" : "escrow-forfeited",
+    amount,
+    article,
+    displayTitle,
+  });
 }
 
 /**

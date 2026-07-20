@@ -119,6 +119,20 @@
               <span class="hstat-label">Earnings (24h)</span>
               <span class="hstat-value pos" id="hdr-today">0</span>
             </div>
+            <div class="notif-bell" id="notif-bell" hidden>
+              <button class="notif-bell-btn" id="notif-bell-btn" aria-label="Notifications" aria-expanded="false">
+                <svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6.5H4c.5-1 2-2.5 2-6.5Z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
+                <span class="notif-badge" id="notif-badge" hidden>0</span>
+              </button>
+              <div class="notif-panel" id="notif-panel" hidden>
+                <div class="notif-panel-head">
+                  <h3>Notifications</h3>
+                  <button class="link small" id="notif-read-all">Mark all read</button>
+                </div>
+                <ul class="notif-list" id="notif-list"></ul>
+                <p class="empty" id="notif-empty" hidden>No notifications yet.</p>
+              </div>
+            </div>
             <div class="profile" id="hdr-profile" role="button" tabindex="0" title="Manage account" hidden>
               <span class="avatar" id="hdr-avatar"></span>
               <span class="profile-name" id="hdr-username"></span>

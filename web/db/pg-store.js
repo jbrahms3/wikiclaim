@@ -114,6 +114,22 @@ const rowToListing = (r) =>
       }
     : null;
 
+const rowToNotification = (r) =>
+  r
+    ? {
+        id: r.id,
+        userId: r.user_id,
+        type: r.type,
+        amount: r.amount,
+        article: r.article,
+        displayTitle: r.display_title,
+        data: r.data || null,
+        read: r.read,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }
+    : null;
+
 const rowToCache = (r) => {
   if (!r) return null;
   let spark = null;
@@ -317,6 +333,35 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
           err.message
         );
       }
+
+      // Notification center: private, per-user alerts (today's earnings,
+      // escrow decisions, ...) distinct from the public activity feed.
+      // dedup_key lets a repeatable event (e.g. "today's earnings") upsert
+      // into a single running notification instead of spamming a new row
+      // per settlement pass - see addOrIncrementNotification. Only
+      // non-null dedup_keys are constrained so one-off notifications
+      // (escrow decisions) never collide with each other.
+      await q(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          type TEXT NOT NULL,
+          amount BIGINT,
+          article TEXT,
+          display_title TEXT,
+          data JSONB,
+          dedup_key TEXT,
+          read BOOLEAN NOT NULL DEFAULT false,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        );
+      `);
+      await q(
+        `CREATE UNIQUE INDEX IF NOT EXISTS notifications_dedup_idx ON notifications (user_id, dedup_key) WHERE dedup_key IS NOT NULL;`
+      );
+      await q(
+        `CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id, created_at DESC);`
+      );
     },
 
     // --- users ---
@@ -551,7 +596,57 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       if (credit && amount > 0) {
         await q(`UPDATE users SET credits = credits + $2 WHERE id = $1`, [h.userId, amount]);
       }
-      return { holdingId: id, userId: h.userId, article: h.article, amount, credited: !!credit };
+      return { holdingId: id, userId: h.userId, article: h.article, displayTitle: h.displayTitle, amount, credited: !!credit };
+    },
+
+    // --- notification center ---
+    // Insert-or-increment: when n.dedupKey matches an existing notification
+    // for this user, the new amount is ADDED to it (rather than replacing)
+    // and it's marked unread again - used for "today's earnings", which
+    // accumulates across possibly-several settlement passes in a day rather
+    // than firing once. A null dedupKey (one-off events like an escrow
+    // decision) always inserts a fresh row instead.
+    async addOrIncrementNotification(n) {
+      const { rows } = await q(
+        `INSERT INTO notifications
+           (id, user_id, type, amount, article, display_title, data, dedup_key, read, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false,$9,$9)
+         ON CONFLICT (user_id, dedup_key) WHERE dedup_key IS NOT NULL
+         DO UPDATE SET
+           amount = notifications.amount + EXCLUDED.amount,
+           read = false,
+           updated_at = EXCLUDED.updated_at
+         RETURNING *`,
+        [
+          n.id, n.userId, n.type, n.amount ?? null, n.article ?? null, n.displayTitle ?? null,
+          n.data ? JSON.stringify(n.data) : null, n.dedupKey ?? null, n.ts,
+        ]
+      );
+      return rowToNotification(rows[0]);
+    },
+    async notificationsForUser(userId, limit = 30) {
+      const { rows } = await q(
+        `SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+        [userId, limit]
+      );
+      return rows.map(rowToNotification);
+    },
+    async unreadNotificationCount(userId) {
+      const { rows } = await q(
+        `SELECT COUNT(*)::int AS c FROM notifications WHERE user_id = $1 AND read = false`,
+        [userId]
+      );
+      return rows[0] ? rows[0].c : 0;
+    },
+    async markNotificationRead(id, userId) {
+      const { rowCount } = await q(
+        `UPDATE notifications SET read = true WHERE id = $1 AND user_id = $2`,
+        [id, userId]
+      );
+      return rowCount > 0;
+    },
+    async markAllNotificationsRead(userId) {
+      await q(`UPDATE notifications SET read = true WHERE user_id = $1 AND read = false`, [userId]);
     },
 
     // --- page price cache ---

@@ -27,6 +27,8 @@ const state = {
   activity: [],
   leaderboard: [],
   bets: { open: [], resolved: [] },
+  notifications: [],
+  notifUnread: 0,
   listings: [],
   discover: [],
   // "views" only applies with a real category selected - ranking "most
@@ -292,6 +294,13 @@ function renderAuthChrome() {
   $("#hdr-today-stat").hidden = !signedIn;
   $("#hdr-profile").hidden = !hasSession;
   $("#hdr-signin-btn").hidden = hasSession;
+  $("#notif-bell").hidden = !signedIn;
+  if (!signedIn) {
+    closeNotifPanel();
+    state.notifications = [];
+    state.notifUnread = 0;
+    renderNotifBadge();
+  }
   $("#sidebar-profile").hidden = !hasSession;
   $("#sidebar-points-card").hidden = !signedIn;
   $("#logout-btn").hidden = !signedIn;
@@ -698,6 +707,7 @@ function loadSecondary() {
       // action happens to re-fetch /api/me.
       loadMe();
     }).catch(() => {});
+    loadNotifications();
   } else {
     state.watchlist = [];
     state.bets = { open: [], resolved: [] };
@@ -711,6 +721,119 @@ async function refreshAfterTrade() {
   renderChrome();
   loadSecondary();
 }
+
+/* ================= notification center ================= */
+
+function renderNotifBadge() {
+  const badge = $("#notif-badge");
+  const n = state.notifUnread || 0;
+  badge.hidden = n === 0;
+  badge.textContent = n > 99 ? "99+" : String(n);
+}
+
+// Each type renders from its own structured fields (amount/article/
+// displayTitle) rather than a server-composed string, matching how
+// feedItemHtml renders the public activity feed - keeps number/date
+// formatting consistent with the rest of the UI (fmt(), relTime()).
+function notifText(n) {
+  const title = escapeHtml(n.displayTitle || "");
+  if (n.type === "daily-earnings") {
+    return { icon: "💰", text: `You earned <b>${fmt(n.amount)} pts</b> today.` };
+  }
+  if (n.type === "escrow-released") {
+    return { icon: "✅", text: `Your held earnings for <b>${title}</b> (${fmt(n.amount)} pts) were released to your balance.` };
+  }
+  if (n.type === "escrow-forfeited") {
+    return { icon: "⚠️", text: `Your held earnings for <b>${title}</b> (${fmt(n.amount)} pts) were forfeited after review.` };
+  }
+  return { icon: "🔔", text: "You have a new notification." };
+}
+
+function notifItemHtml(n) {
+  const { icon, text } = notifText(n);
+  return `
+    <li class="notif-item${n.read ? "" : " unread"}" data-id="${escapeHtml(n.id)}">
+      <span class="notif-icon">${icon}</span>
+      <div class="notif-body">
+        <div class="notif-text">${text}</div>
+        <div class="notif-time">${relTime(n.createdAt)}</div>
+      </div>
+    </li>`;
+}
+
+function renderNotifList() {
+  const list = $("#notif-list");
+  const items = state.notifications || [];
+  $("#notif-empty").hidden = items.length > 0;
+  list.hidden = items.length === 0;
+  list.innerHTML = items.map(notifItemHtml).join("");
+}
+
+async function loadNotifications() {
+  if (!state.user) return;
+  try {
+    const { notifications, unread } = await api("/api/notifications");
+    state.notifications = notifications;
+    state.notifUnread = unread;
+    renderNotifBadge();
+    if (!$("#notif-panel").hidden) renderNotifList();
+  } catch {
+    /* header chrome shouldn't break if this fails */
+  }
+}
+
+function closeNotifPanel() {
+  $("#notif-panel").hidden = true;
+  $("#notif-bell-btn").setAttribute("aria-expanded", "false");
+}
+
+$("#notif-bell-btn").addEventListener("click", async (e) => {
+  e.stopPropagation();
+  const panel = $("#notif-panel");
+  const opening = panel.hidden;
+  if (!opening) {
+    closeNotifPanel();
+    return;
+  }
+  panel.hidden = false;
+  $("#notif-bell-btn").setAttribute("aria-expanded", "true");
+  renderNotifList();
+  await loadNotifications();
+});
+
+document.addEventListener("click", (e) => {
+  const bell = $("#notif-bell");
+  if (bell.hidden || bell.contains(e.target)) return;
+  closeNotifPanel();
+});
+
+$("#notif-list").addEventListener("click", async (e) => {
+  const li = e.target.closest(".notif-item.unread");
+  if (!li) return;
+  const id = li.dataset.id;
+  li.classList.remove("unread");
+  const n = state.notifications.find((x) => x.id === id);
+  if (n) n.read = true;
+  state.notifUnread = Math.max(0, (state.notifUnread || 0) - 1);
+  renderNotifBadge();
+  try {
+    await api(`/api/notifications/${encodeURIComponent(id)}/read`, { method: "POST" });
+  } catch {
+    /* best effort - not worth surfacing a failed read-receipt to the user */
+  }
+});
+
+$("#notif-read-all").addEventListener("click", async () => {
+  state.notifications = (state.notifications || []).map((n) => ({ ...n, read: true }));
+  state.notifUnread = 0;
+  renderNotifBadge();
+  renderNotifList();
+  try {
+    await api("/api/notifications/read-all", { method: "POST" });
+  } catch {
+    /* best effort */
+  }
+});
 
 /* ================= chrome (sidebar / header) ================= */
 
