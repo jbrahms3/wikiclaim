@@ -537,6 +537,93 @@ $("#username-form").addEventListener("submit", async (e) => {
   }
 });
 
+/* ================= getting-started tour ================= */
+// A short, dismissible walkthrough of the core mechanics - browsing doesn't
+// require an account, so this (unlike the username modal) needs to work for
+// signed-out visitors too. Auto-shown once per browser (localStorage, since
+// it's a UI preference, not account data - a signed-in user on a second
+// device would just see it once more there, which is fine), and reachable
+// any time via the "?" header button.
+
+const TOUR_SEEN_KEY = "wikipicks_tour_seen";
+
+const TOUR_STEPS = [
+  {
+    icon: "📖",
+    title: "Welcome to WikiPicks",
+    body: "Every Wikipedia article is a tradeable asset here, priced from its real, live traffic — not made up. Buy ones you think are undervalued, earn from their real daily readership, and climb the leaderboard. Browsing is free; you only need to sign in to buy, sell, predict, or watch something.",
+  },
+  {
+    icon: "💰",
+    title: "Claim an article",
+    body: "An article's price is its average daily views over the last year, plus a bonus for a strong recent month — real traffic sets the price, not guesswork. Ownership is exclusive: once you claim it, it's off the market for everyone else. Find articles on the Market or Discover page, or just search.",
+  },
+  {
+    icon: "📈",
+    title: "Earn every day",
+    body: "Each article you own pays you points equal to its real view count, every single day, starting the day after you buy it. Wikipedia publishes traffic with about a day's lag, so today's earnings show up tomorrow — settlement happens automatically whenever you open the app.",
+  },
+  {
+    icon: "🔮",
+    title: "Predict without owning",
+    body: "Stake points on whether an article's daily views will go up or down — no purchase required. Guess right and you get back more than you staked; guess wrong and you get back less. Resolves as soon as the real numbers publish, often well before the 24-hour estimate.",
+  },
+  {
+    icon: "🏆",
+    title: "Track your progress",
+    body: "The Points page shows your balance and progress toward 1,000,000 points, which earns a real $100 gift card. The Leaderboard ranks every player by net worth — points plus the current value of everything you own. Start with 5,000 points and see how far you can grow it.",
+  },
+];
+
+let tourStepIndex = 0;
+
+function renderTourStep() {
+  const step = TOUR_STEPS[tourStepIndex];
+  $("#tour-icon").textContent = step.icon;
+  $("#tour-title").textContent = step.title;
+  $("#tour-body").textContent = step.body;
+  $("#tour-dots").innerHTML = TOUR_STEPS.map(
+    (_, i) => `<span class="${i === tourStepIndex ? "active" : ""}"></span>`
+  ).join("");
+  $("#tour-back-btn").classList.toggle("tour-back-hidden", tourStepIndex === 0);
+  $("#tour-next-btn").textContent = tourStepIndex === TOUR_STEPS.length - 1 ? "Get Started" : "Next";
+}
+
+function openTour() {
+  tourStepIndex = 0;
+  renderTourStep();
+  $("#tour-modal").hidden = false;
+}
+
+function closeTour() {
+  $("#tour-modal").hidden = true;
+  try {
+    localStorage.setItem(TOUR_SEEN_KEY, "1");
+  } catch {
+    /* private browsing / storage disabled - just means it may auto-show again next visit */
+  }
+}
+
+$("#tour-open-btn").addEventListener("click", openTour);
+$("#tour-close-btn").addEventListener("click", closeTour);
+$("#tour-modal").addEventListener("click", (e) => {
+  if (e.target.id === "tour-modal") closeTour(); // click on the backdrop
+});
+$("#tour-back-btn").addEventListener("click", () => {
+  if (tourStepIndex > 0) {
+    tourStepIndex--;
+    renderTourStep();
+  }
+});
+$("#tour-next-btn").addEventListener("click", () => {
+  if (tourStepIndex < TOUR_STEPS.length - 1) {
+    tourStepIndex++;
+    renderTourStep();
+  } else {
+    closeTour();
+  }
+});
+
 /* ================= data loading ================= */
 
 async function loadMe() {
@@ -2084,3 +2171,16 @@ initClerk().catch((err) => {
   renderRoute();
   toast("Couldn't load sign-in — you can still browse.", true);
 });
+
+// Auto-show the getting-started tour once per browser, after the page has
+// had a moment to settle. Skipped if the mandatory username modal is
+// already up (a brand-new sign-up) so the two don't stack.
+setTimeout(() => {
+  try {
+    if (localStorage.getItem(TOUR_SEEN_KEY)) return;
+    if (!$("#username-modal").hidden) return;
+    openTour();
+  } catch {
+    /* localStorage unavailable (e.g. private browsing) - just skip auto-show */
+  }
+}, 800);

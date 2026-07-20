@@ -237,6 +237,12 @@ a.side-card:hover { border-color: var(--accent); }
   stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
 }
 
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 8px; }
+.icon-btn svg {
+  width: 18px; height: 18px; fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+
 .header-stats { display: flex; align-items: center; gap: 24px; margin-left: auto; }
 .hstat { display: flex; flex-direction: column; align-items: flex-end; }
 .hstat-label { font-size: 10.5px; color: var(--muted); font-weight: 600; }
@@ -601,6 +607,29 @@ img.thumb { border: 1px solid var(--border); }
 .field-error { color: var(--red); font-size: 12.5px; margin: 0 0 10px; }
 .modal-actions { display: flex; gap: 10px; }
 .modal-actions .btn-primary, .modal-actions .btn-ghost { flex: 1; width: auto; }
+
+/* ---------- Getting-started tour ---------- */
+.tour-card { max-width: 440px; position: relative; text-align: center; }
+.tour-close {
+  all: unset; position: absolute; top: 14px; right: 14px; cursor: pointer;
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; color: var(--muted); font-size: 18px; line-height: 1;
+}
+.tour-close:hover { background: var(--card); color: var(--text); }
+.tour-icon {
+  width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 14px;
+  background: var(--accent-soft); color: var(--accent);
+  display: flex; align-items: center; justify-content: center; font-size: 26px;
+}
+.tour-card h2 { text-align: center; }
+.tour-card .page-hint { text-align: center; }
+.tour-dots { display: flex; justify-content: center; gap: 6px; margin: 4px 0 18px; }
+.tour-dots span {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--border);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.tour-dots span.active { background: var(--accent); transform: scale(1.2); }
+.tour-back-hidden { visibility: hidden; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
