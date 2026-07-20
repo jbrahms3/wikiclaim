@@ -186,7 +186,8 @@ export function createJsonStore() {
     // so two concurrent settlements can't double-credit. Returns true if applied.
     async applySettlement(
       id, expectedLast, newLast, earnedDelta, latestEarned,
-      escrowDelta = 0, escrowStreakDays = 0, escrowFlagged = false
+      escrowDelta = 0, escrowStreakDays = 0, escrowFlagged = false,
+      escrowFlagReason = null, escrowFlaggedAt = null
     ) {
       const h = db.holdings[id];
       if (!h || h.lastSettledDate !== expectedLast) return false;
@@ -196,6 +197,10 @@ export function createJsonStore() {
       h.escrowedEarned = (h.escrowedEarned || 0) + (escrowDelta || 0);
       h.escrowStreakDays = escrowStreakDays || 0;
       h.escrowFlagged = !!h.escrowFlagged || !!escrowFlagged;
+      // Only ever passed non-null on the actual first-flag transition (see
+      // settleHolding) - set once, never overwritten while still flagged.
+      if (!h.escrowFlagReason && escrowFlagReason) h.escrowFlagReason = escrowFlagReason;
+      if (!h.escrowFlaggedAt && escrowFlaggedAt) h.escrowFlaggedAt = escrowFlaggedAt;
       persist();
       return true;
     },
@@ -234,6 +239,8 @@ export function createJsonStore() {
       h.escrowedEarned = 0;
       h.escrowStreakDays = 0;
       h.escrowFlagged = false;
+      h.escrowFlagReason = null;
+      h.escrowFlaggedAt = null;
       if (credit && amount > 0) {
         const u = db.users[h.userId];
         if (u) u.credits += amount;

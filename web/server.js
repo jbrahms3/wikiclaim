@@ -31,6 +31,8 @@ import {
   browseListings,
   buyListing,
   publicUser,
+  ESCROW_FLAG_AMOUNT,
+  ESCROW_FLAG_STREAK_DAYS,
 } from "./game.js";
 import {
   searchArticles,
@@ -659,6 +661,19 @@ app.get(
 // A holding's earnings get flagged, not auto-resolved, once a spike is big
 // or sustained enough to look suspicious - it takes a human decision either
 // way, since a botnet could in principle keep running for days too.
+function flagReasonText(h) {
+  switch (h.escrowFlagReason) {
+    case "amount":
+      return `Held earnings reached the ${ESCROW_FLAG_AMOUNT}+ pt threshold`;
+    case "streak":
+      return `${ESCROW_FLAG_STREAK_DAYS}+ consecutive days over the normal-traffic cap`;
+    case "both":
+      return `Held earnings reached ${ESCROW_FLAG_AMOUNT}+ pts AND ${ESCROW_FLAG_STREAK_DAYS}+ consecutive over-cap days`;
+    default:
+      return "Reason not recorded (flagged before this was tracked)";
+  }
+}
+
 app.get(
   "/api/admin/escrow",
   requireAdmin,
@@ -691,6 +706,9 @@ app.get(
           purchasedDate: h.purchasedDate,
           escrowedEarned: h.escrowedEarned || 0,
           escrowStreakDays: h.escrowStreakDays || 0,
+          flagReason: h.escrowFlagReason || null,
+          flagReasonText: flagReasonText(h),
+          flaggedAt: h.escrowFlaggedAt || null,
           recentViews,
           latestViews: latest ? latest.views : null,
           dayBeforeViews: dayBefore ? dayBefore.views : null,

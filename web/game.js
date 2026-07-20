@@ -66,8 +66,8 @@ export function earningsCapMultiplier(baseline) {
 // principle keep running for days, so "it persisted" alone can't be trusted
 // as automatic proof of legitimacy - a human has to look). Escrow is never
 // auto-released; it sits flagged until an admin approves or forfeits it.
-const ESCROW_FLAG_AMOUNT = 500;
-const ESCROW_FLAG_STREAK_DAYS = 3;
+export const ESCROW_FLAG_AMOUNT = 500;
+export const ESCROW_FLAG_STREAK_DAYS = 3;
 
 // A one- or two-day "baseline" is just noise, not a reliable read on what's
 // normal for an article - capping against that thin a sample would unfairly
@@ -161,9 +161,15 @@ export async function settleHolding(holding) {
   if (!settledThrough) return 0;
 
   const newEscrowTotal = (holding.escrowedEarned || 0) + escrowDelta;
-  const shouldFlag =
-    !holding.escrowFlagged &&
-    (newEscrowTotal >= ESCROW_FLAG_AMOUNT || streakDays >= ESCROW_FLAG_STREAK_DAYS);
+  const amountTriggered = newEscrowTotal >= ESCROW_FLAG_AMOUNT;
+  const streakTriggered = streakDays >= ESCROW_FLAG_STREAK_DAYS;
+  const shouldFlag = !holding.escrowFlagged && (amountTriggered || streakTriggered);
+  // Recorded once, at the exact moment a holding transitions to flagged, so
+  // a reviewer sees what ACTUALLY triggered it - escrowedEarned/streakDays
+  // keep changing after that point (settlement doesn't stop just because a
+  // holding is flagged), so recomputing "why" from current numbers later
+  // could give a different, misleading answer than what really happened.
+  const flagReason = shouldFlag ? (amountTriggered && streakTriggered ? "both" : amountTriggered ? "amount" : "streak") : null;
 
   // Compare-and-set on the old settle date: if a concurrent request already
   // settled this window, applied === false and we must not credit again.
@@ -175,7 +181,9 @@ export async function settleHolding(holding) {
     latestEarned,
     escrowDelta,
     streakDays,
-    shouldFlag
+    shouldFlag,
+    flagReason,
+    shouldFlag ? Date.now() : null
   );
   if (!applied) return 0;
 

@@ -58,6 +58,8 @@ const rowToHolding = (r) =>
         escrowedEarned: r.escrowed_earned,
         escrowStreakDays: r.escrow_streak_days,
         escrowFlagged: r.escrow_flagged,
+        escrowFlagReason: r.escrow_flag_reason,
+        escrowFlaggedAt: r.escrow_flagged_at,
       }
     : null;
 
@@ -209,6 +211,12 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS escrowed_earned BIGINT NOT NULL DEFAULT 0;`);
       await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS escrow_streak_days INTEGER NOT NULL DEFAULT 0;`);
       await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS escrow_flagged BOOLEAN NOT NULL DEFAULT false;`);
+      // Recorded once, at the moment a holding is first flagged (see
+      // settleHolding in game.js) - never overwritten while still flagged,
+      // so it reflects the actual trigger even though escrowed_earned/
+      // escrow_streak_days keep changing afterward.
+      await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS escrow_flag_reason TEXT;`);
+      await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS escrow_flagged_at BIGINT;`);
       await q(`
         CREATE TABLE IF NOT EXISTS page_cache (
           key TEXT PRIMARY KEY,
@@ -475,8 +483,12 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     },
     async applySettlement(
       id, expectedLast, newLast, earnedDelta, latestEarned,
-      escrowDelta = 0, escrowStreakDays = 0, escrowFlagged = false
+      escrowDelta = 0, escrowStreakDays = 0, escrowFlagged = false,
+      escrowFlagReason = null, escrowFlaggedAt = null
     ) {
+      // COALESCE(existing, new): reason/flaggedAt are only ever passed
+      // non-null on the actual first-flag transition (see settleHolding),
+      // so this sets them once and never overwrites afterward.
       const { rowCount } = await q(
         `UPDATE holdings
            SET last_settled_date = $3,
@@ -484,9 +496,11 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
                latest_earned = $5,
                escrowed_earned = escrowed_earned + $6,
                escrow_streak_days = $7,
-               escrow_flagged = escrow_flagged OR $8
+               escrow_flagged = escrow_flagged OR $8,
+               escrow_flag_reason = COALESCE(escrow_flag_reason, $9),
+               escrow_flagged_at = COALESCE(escrow_flagged_at, $10)
          WHERE id = $1 AND last_settled_date = $2`,
-        [id, expectedLast, newLast, earnedDelta, latestEarned, escrowDelta, escrowStreakDays, escrowFlagged]
+        [id, expectedLast, newLast, earnedDelta, latestEarned, escrowDelta, escrowStreakDays, escrowFlagged, escrowFlagReason, escrowFlaggedAt]
       );
       return rowCount > 0;
     },
@@ -529,6 +543,7 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       await q(
         `UPDATE holdings
            SET escrowed_earned = 0, escrow_streak_days = 0, escrow_flagged = false,
+               escrow_flag_reason = NULL, escrow_flagged_at = NULL,
                total_earned = total_earned + $2
          WHERE id = $1`,
         [id, credit ? amount : 0]

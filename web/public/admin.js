@@ -14,6 +14,15 @@
     }[c]));
   }
 
+  function relTime(ts) {
+    if (!ts) return "";
+    const s = Math.max(0, (Date.now() - ts) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }
+
   function getKey() {
     return sessionStorage.getItem(KEY_STORAGE) || "";
   }
@@ -56,6 +65,10 @@
       <tr data-id="${escapeHtml(h.holdingId)}">
         <td>${escapeHtml(h.username)}</td>
         <td><a href="${escapeHtml(h.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(h.displayTitle)}</a></td>
+        <td class="flag-reason">
+          <div>${escapeHtml(h.flagReasonText)}</div>
+          ${h.flaggedAt ? `<div class="flag-time">${escapeHtml(relTime(h.flaggedAt))}</div>` : ""}
+        </td>
         <td class="num">${fmt(h.escrowedEarned)}</td>
         <td class="num">${h.escrowStreakDays}d</td>
         <td>
@@ -74,7 +87,7 @@
 
   async function loadFlagged() {
     const tbody = $("#escrow-table tbody");
-    tbody.innerHTML = `<tr><td colspan="6" class="escrow-empty">Loading…</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="escrow-empty">Loading…</td></tr>`;
     try {
       const { holdings } = await adminFetch("/api/admin/escrow");
       $("#escrow-empty").hidden = holdings.length > 0;
