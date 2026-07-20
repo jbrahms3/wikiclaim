@@ -538,12 +538,13 @@ $("#username-form").addEventListener("submit", async (e) => {
 });
 
 /* ================= getting-started tour ================= */
-// A short, dismissible walkthrough of the core mechanics - browsing doesn't
-// require an account, so this (unlike the username modal) needs to work for
-// signed-out visitors too. Auto-shown once per browser (localStorage, since
-// it's a UI preference, not account data - a signed-in user on a second
-// device would just see it once more there, which is fine), and reachable
-// any time via the "?" header button.
+// A short, dismissible walkthrough of the core mechanics, shown only to
+// first-time visitors - browsing doesn't require an account, so this
+// (unlike the username modal) needs to work for signed-out visitors too.
+// Auto-shown once per browser (localStorage, since it's a UI preference,
+// not account data - a signed-in user on a second device would just see it
+// once more there, which is fine) and never re-shown after that; there's no
+// manual re-open, by design.
 
 const TOUR_SEEN_KEY = "wikipicks_tour_seen";
 
@@ -604,7 +605,6 @@ function closeTour() {
   }
 }
 
-$("#tour-open-btn").addEventListener("click", openTour);
 $("#tour-close-btn").addEventListener("click", closeTour);
 $("#tour-modal").addEventListener("click", (e) => {
   if (e.target.id === "tour-modal") closeTour(); // click on the backdrop
