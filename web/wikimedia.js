@@ -343,11 +343,17 @@ export async function getArticleHistory(project, article, days = 30) {
   const start = addDaysUTC(end, -(days - 1));
   const views = await fetchDailyPageviews(project, article, start, end);
 
+  // A day missing from `views` means Wikimedia hasn't published it yet (most
+  // often the trailing/most-recent day, during the publish lag) - that's
+  // "unknown", not "zero traffic". Defaulting it to 0 made the line chart
+  // plunge to zero for a still-pending day instead of just ending at the
+  // last real value. Only include days we actually have data for; `has()`
+  // (not a falsy check) so a genuine 0-view day is still kept as a real 0.
   const out = [];
   let cursor = start;
   while (cursor <= end) {
     const key = formatYYYYMMDD(cursor);
-    out.push({ date: key, views: views.get(key) || 0 });
+    if (views.has(key)) out.push({ date: key, views: views.get(key) });
     cursor = addDaysUTC(cursor, 1);
   }
   historyCache.set(cacheKey, { at: Date.now(), data: out });
