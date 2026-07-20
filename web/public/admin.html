@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WikiPicks — Escrow Review</title>
+  <link rel="icon" type="image/svg+xml" href="wikipicks_logo.svg" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* This page is operator-only (not linked from the main nav) and doesn't
+       use the app shell's sidebar/grid layout - just the shared component
+       styles (.card, .table, .btn-*, etc.) in a plain centered column. */
+    .admin-wrap { max-width: 900px; margin: 0 auto; padding: 32px 20px 60px; }
+    .admin-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .admin-header h1 { font-size: 20px; margin: 0; }
+    .key-card { max-width: 420px; margin: 60px auto; text-align: center; }
+    .key-card input { width: 100%; margin: 12px 0; }
+    .key-error { color: var(--red); font-size: 12.5px; margin: 0 0 10px; }
+    .escrow-empty { padding: 30px; text-align: center; color: var(--muted); }
+    .views-strip { display: flex; gap: 3px; align-items: flex-end; height: 28px; margin-top: 4px; }
+    .views-strip .bar { flex: 1; background: var(--accent-soft); border-radius: 2px; min-height: 2px; }
+    .views-strip .bar.today { background: var(--accent); }
+    .row-actions { display: flex; gap: 8px; }
+    .row-actions button { padding: 6px 12px; font-size: 12.5px; }
+    .btn-danger { background: var(--red-soft); border-color: var(--red-soft); color: var(--red); }
+    .btn-danger:hover { background: var(--red-soft); filter: brightness(0.96); }
+  </style>
+</head>
+<body>
+  <div class="admin-wrap">
+    <div class="key-card card" id="key-card">
+      <h1>Escrow Review</h1>
+      <p class="page-hint">
+        Enter the ADMIN_KEY you set in this server's environment to review holdings
+        flagged by the anti-botting earnings cap.
+      </p>
+      <input id="key-input" type="password" placeholder="Admin key" autocomplete="off" />
+      <p class="key-error" id="key-error" hidden></p>
+      <button class="btn-primary" id="key-submit">Continue</button>
+    </div>
+
+    <div id="review-view" hidden>
+      <div class="admin-header">
+        <h1>Flagged Holdings</h1>
+        <div class="row-actions">
+          <button class="btn-ghost btn-sm" id="refresh-btn">↻ Refresh</button>
+          <button class="btn-ghost btn-sm" id="signout-btn">Change key</button>
+        </div>
+      </div>
+      <p class="page-hint">
+        A holding lands here once its daily earnings were capped for an anomalous view
+        spike (see <code>contiguousSettlement</code> in game.js) - either a single large
+        excess or several consecutive over-cap days. <strong>Release</strong> credits the
+        held amount to the owner; <strong>Forfeit</strong> discards it. Either way the
+        holding's escrow resets so it can flag again later if it happens again.
+      </p>
+      <div class="card table-card">
+        <table class="table" id="escrow-table">
+          <thead>
+            <tr>
+              <th>Owner</th><th>Article</th><th>Held</th><th>Streak</th>
+              <th>Recent views (14d)</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <p class="escrow-empty" id="escrow-empty" hidden>Nothing flagged right now.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>
