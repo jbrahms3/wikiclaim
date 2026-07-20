@@ -72,7 +72,7 @@
         <td class="num">${fmt(h.escrowedEarned)}</td>
         <td class="num">${h.escrowStreakDays}d</td>
         <td>
-          ${viewsStripHtml(h.recentViews)}
+          ${viewsStripHtml(h.recentViews.slice(-14))}
           <div class="views-stats">
             <div>Day before → latest: <strong>${increaseText(h)}</strong></div>
             <div>7d avg: ${h.weekAvgViews == null ? "—" : fmt(h.weekAvgViews)} · 30d avg: ${h.monthAvgViews == null ? "—" : fmt(h.monthAvgViews)}</div>
