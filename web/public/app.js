@@ -1527,6 +1527,15 @@ async function renderMarket() {
 
 // Shared row builder for any table of priced/ownership-decorated articles
 // (primary market, search results, discover) - same columns, same
+// Shared "who owns this" line for any row with attachOwnership's fields
+// (owned/ownedByMe/ownerUsername) - ownership is exclusive, so this is the
+// one honest answer to "can I claim this" wherever an article is listed.
+function ownerNoteHtml(r) {
+  if (!r.owned) return "";
+  const who = r.ownedByMe ? "you" : escapeHtml(r.ownerUsername || "another player");
+  return `<div class="cell-sub owner-note">Owned by ${who}</div>`;
+}
+
 // Claim/Owned/Buy-listing/retry button logic everywhere.
 function buildArticleRow(r) {
   const title = r.title || r.displayTitle;
@@ -1541,6 +1550,7 @@ function buildArticleRow(r) {
         <div>
           <div class="cell-title">${escapeHtml(title)}</div>
           <div class="cell-sub">${escapeHtml(r.description || r.snippet || "")}</div>
+          ${ownerNoteHtml(r)}
         </div>
       </div>
     </td>
@@ -1664,6 +1674,7 @@ function renderWatchlistPage() {
           <div>
             <div class="cell-title">${escapeHtml(w.displayTitle)}</div>
             <div class="cell-sub">${escapeHtml(w.description || "")}</div>
+            ${ownerNoteHtml(w)}
           </div>
         </div>
       </td>

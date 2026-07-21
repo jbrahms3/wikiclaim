@@ -298,12 +298,16 @@ async function attachOwnership(items, userId) {
   return Promise.all(
     items.map(async (i) => {
       const owner = await store.findAnyHolding("en.wikipedia", i.article);
-      if (!owner) return { ...i, owned: false, ownedByMe: false, listing: null };
-      const listing = await store.getListing(owner.id);
+      if (!owner) return { ...i, owned: false, ownedByMe: false, ownerUsername: null, listing: null };
+      const [listing, ownerUser] = await Promise.all([
+        store.getListing(owner.id),
+        owner.userId === userId ? null : store.getUser(owner.userId),
+      ]);
       return {
         ...i,
         owned: true,
         ownedByMe: owner.userId === userId,
+        ownerUsername: ownerUser ? ownerUser.username : null,
         listing: listing ? { id: listing.id, askPrice: listing.askPrice } : null,
       };
     })
