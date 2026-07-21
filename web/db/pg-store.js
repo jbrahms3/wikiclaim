@@ -79,7 +79,9 @@ const rowToActivity = (r) =>
 
 // Predictions resolve against daily views now, not price (see game.js) - the
 // start_price/end_price columns kept their names to avoid a migration, but
-// hold view counts, not prices.
+// hold view counts, not prices. `direction` is legacy (pre exact-guess
+// mechanic) - still read so old open bets resolve correctly, never written
+// by new bets (see guess/baseline_avg/band/graded_views).
 const rowToBet = (r) =>
   r
     ? {
@@ -89,12 +91,16 @@ const rowToBet = (r) =>
         article: r.article,
         displayTitle: r.display_title,
         direction: r.direction,
+        guess: r.guess,
+        baselineAvg: r.baseline_avg,
+        band: r.band,
         stake: r.stake,
         startViews: r.start_price,
         placedAt: r.placed_at,
         resolvesAt: r.resolves_at,
         status: r.status,
         endViews: r.end_price,
+        gradedViews: r.graded_views,
         payout: r.payout,
         resolvedAt: r.resolved_at,
       }
@@ -297,6 +303,15 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         );
       `);
       await q(`CREATE INDEX IF NOT EXISTS bets_user_idx ON bets (user_id, status);`);
+      // Exact-guess prediction mechanic replaced the plain up/down direction
+      // bet - direction is kept (nullable now) only so pre-existing open
+      // bets still resolve under the old rules (see resolveBetIfDue in
+      // game.js); every new bet sets guess/baseline_avg/band instead.
+      await q(`ALTER TABLE bets ALTER COLUMN direction DROP NOT NULL;`);
+      await q(`ALTER TABLE bets ADD COLUMN IF NOT EXISTS guess BIGINT;`);
+      await q(`ALTER TABLE bets ADD COLUMN IF NOT EXISTS baseline_avg DOUBLE PRECISION;`);
+      await q(`ALTER TABLE bets ADD COLUMN IF NOT EXISTS band DOUBLE PRECISION;`);
+      await q(`ALTER TABLE bets ADD COLUMN IF NOT EXISTS graded_views BIGINT;`);
       // Secondary market: a listing's id is its holding's id (a holding can
       // only be listed once at a time), so listing/re-listing is a natural
       // upsert and buying/cancelling is a single atomic delete-and-return.
@@ -738,16 +753,16 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       return rows.map(rowToActivity);
     },
 
-    // --- bets (24h directional price predictions) ---
+    // --- bets (24h exact-guess view-count predictions) ---
     async createBet(bet) {
       await q(
         `INSERT INTO bets
-           (id, user_id, project, article, display_title, direction, stake,
+           (id, user_id, project, article, display_title, guess, baseline_avg, band, stake,
             start_price, placed_at, resolves_at, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open')`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'open')`,
         [
           bet.id, bet.userId, bet.project, bet.article, bet.displayTitle,
-          bet.direction, bet.stake, bet.startViews, bet.placedAt, bet.resolvesAt,
+          bet.guess, bet.baselineAvg, bet.band, bet.stake, bet.startViews, bet.placedAt, bet.resolvesAt,
         ]
       );
       return bet;
@@ -766,9 +781,9 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     async resolveBet(id, updates) {
       const { rowCount } = await q(
         `UPDATE bets
-           SET status = 'resolved', end_price = $2, payout = $3, resolved_at = $4
+           SET status = 'resolved', end_price = $2, graded_views = $3, payout = $4, resolved_at = $5
          WHERE id = $1 AND status = 'open'`,
-        [id, updates.endViews, updates.payout, updates.resolvedAt]
+        [id, updates.endViews, updates.gradedViews ?? null, updates.payout, updates.resolvedAt]
       );
       return rowCount > 0;
     },

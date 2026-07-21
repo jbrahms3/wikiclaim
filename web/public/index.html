@@ -419,9 +419,10 @@
           <section class="page" id="page-predictions" hidden>
             <h1 class="page-title">Predictions</h1>
             <p class="page-hint">
-              Predict whether an article's daily views will be higher or lower 24 hours
-              from now. Payout scales with how right (or wrong) you were — open any
-              article and use the <strong>Predict Daily Views</strong> card to place one.
+              Guess an article's exact view count 24 hours from now. Payout scales with
+              how close you land, within a tolerance based on that article's own typical
+              day-to-day swing — open any article and use the
+              <strong>Predict Daily Views</strong> card to place one.
             </p>
             <div class="card signin-prompt" id="predictions-signedout" hidden>
               <p>Sign in to place predictions and see your results.</p>
@@ -432,7 +433,7 @@
                 <div class="card-head"><h2>Open Predictions</h2></div>
                 <table class="table" id="bets-open-table">
                   <thead>
-                    <tr><th>Article</th><th>Date</th><th>Direction</th><th>Stake</th><th>Views: Start → Now</th><th>Resolves</th><th>Est. payout</th></tr>
+                    <tr><th>Article</th><th>Date</th><th>Guess</th><th>Stake</th><th>Current Views</th><th>Resolves</th><th>Est. payout</th></tr>
                   </thead>
                   <tbody></tbody>
                 </table>
@@ -445,7 +446,7 @@
                 <div class="card-head"><h2>History</h2></div>
                 <table class="table" id="bets-resolved-table">
                   <thead>
-                    <tr><th>Article</th><th>Date</th><th>Direction</th><th>Stake</th><th>Views: Start → End</th><th>Payout</th><th>Result</th></tr>
+                    <tr><th>Article</th><th>Date</th><th>Guess</th><th>Stake</th><th>Actual Views</th><th>Payout</th><th>Result</th></tr>
                   </thead>
                   <tbody></tbody>
                 </table>
@@ -553,14 +554,17 @@
               <div class="card about-card">
                 <h2>Predictions</h2>
                 <p>
-                  Instead of owning a page, stake points on whether its <strong>daily
-                  views</strong> (not price) will be higher or lower than they are right now.
-                  Payout scales with how right — or wrong — you turn out to be: call it
-                  correctly and get back more than you staked, get it wrong and get back less
-                  (never less than zero). A prediction resolves as soon as the real numbers
-                  for the day come in — often well before its displayed 24-hour estimate,
-                  since Wikipedia's publishing time doesn't line up exactly with a fixed
-                  clock.
+                  Instead of owning a page, guess its exact <strong>daily views</strong>
+                  (not price) 24 hours from now. Payout scales with how close your guess
+                  lands, within a tolerance based on how much that specific article's
+                  traffic typically swings day to day — land close and get back more than
+                  you staked, miss wide and get back less (never less than zero).
+                  Articles need real, checkable traffic to be predictable on, and the view
+                  count used to grade a guess is capped well above an article's normal
+                  level, so inflating an obscure page's traffic to chase your own guess
+                  doesn't work. A prediction resolves as soon as the real numbers for the
+                  day come in — often well before its displayed 24-hour estimate, since
+                  Wikipedia's publishing time doesn't line up exactly with a fixed clock.
                 </p>
               </div>
 
@@ -620,15 +624,13 @@
             <div class="card predict-card">
               <div class="card-head"><h2>Predict Daily Views</h2></div>
               <p class="page-hint predict-hint">
-                Guess whether this article's daily views will be higher or lower 24
-                hours from now. Payout scales with the real % move — guess right and get
-                more than your stake back, guess wrong and get less.
+                Guess this article's exact view count 24 hours from now. Payout scales
+                with how close you land, within a tolerance based on how much this
+                article's traffic typically swings day to day — land close and get
+                back more than your stake, miss wide and get back less.
               </p>
               <div class="predict-form">
-                <div class="direction-toggle">
-                  <button type="button" class="dir-btn up" data-dir="up" id="predict-up">▲ Up</button>
-                  <button type="button" class="dir-btn down" data-dir="down" id="predict-down">▼ Down</button>
-                </div>
+                <input type="number" id="predict-guess" placeholder="Your guess for tomorrow's views" min="0" step="1" />
                 <input type="number" id="predict-stake" placeholder="Stake" min="1" step="1" />
                 <button class="btn-primary" id="predict-submit" disabled>Place Prediction</button>
               </div>

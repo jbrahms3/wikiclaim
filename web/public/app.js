@@ -39,7 +39,6 @@ const state = {
   discoverCategory: null, // set below once DISCOVER_CATEGORIES exists (defaults to "Random")
   discoverSeq: 0,
   discoverSuggestSeq: 0,
-  predictDirection: null,
   detail: null,
   route: { page: "overview" },
   ovDays: 30,
@@ -578,7 +577,7 @@ const TOUR_STEPS = [
   {
     icon: "🔮",
     title: "Predict without owning",
-    body: "Stake points on whether an article's views will rise or fall — no purchase needed. Right guesses pay more than your stake; wrong ones pay less. Resolves as soon as the real numbers publish.",
+    body: "Stake points on an article's exact view count tomorrow — no purchase needed. Land close and get back more than your stake; miss wide and get back less. Resolves as soon as the real numbers publish.",
   },
   {
     icon: "🏆",
@@ -1691,6 +1690,31 @@ function renderWatchlistPage() {
   }
 }
 
+/* ================= prediction payout estimate ================= */
+// Mirrors betPayoutMultiple/BET_MAX_GRADED_MULTIPLE in game.js, for showing
+// a live "if this resolved right now" estimate on still-open bets. The real
+// resolution is always computed server-side - this is display-only.
+const BET_BAND_INNER = 0.5;
+const BET_BAND_OUTER = 2;
+const BET_MAX_PAYOUT_MULTIPLE = 3;
+const BET_MAX_GRADED_MULTIPLE = 11;
+
+function estimatePayout(b, currentViews) {
+  const baseline = b.baselineAvg || b.startViews || 1;
+  const band = b.band || 0.75;
+  const cap = Math.max(1, Math.round(baseline * BET_MAX_GRADED_MULTIPLE));
+  const graded = Math.min(currentViews, cap);
+  const relError = Math.abs(b.guess - graded) / Math.max(1, graded);
+  let multiple;
+  if (relError <= BET_BAND_INNER * band) multiple = BET_MAX_PAYOUT_MULTIPLE;
+  else if (relError >= BET_BAND_OUTER * band) multiple = 0;
+  else {
+    const span = (BET_BAND_OUTER - BET_BAND_INNER) * band;
+    multiple = BET_MAX_PAYOUT_MULTIPLE * (1 - (relError - BET_BAND_INNER * band) / span);
+  }
+  return Math.round(b.stake * multiple);
+}
+
 /* ================= predictions page ================= */
 
 function renderPredictionsPage() {
@@ -1706,9 +1730,7 @@ function renderPredictionsPage() {
   $("#bets-open-table").hidden = open.length === 0;
   openTbody.innerHTML = "";
   for (const b of open) {
-    const pctChange = (b.currentViews - b.startViews) / b.startViews;
-    const signedPct = b.direction === "up" ? pctChange : -pctChange;
-    const estPayout = Math.max(0, Math.round(b.stake * (1 + signedPct)));
+    const estPayout = estimatePayout(b, b.currentViews);
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>
@@ -1718,9 +1740,9 @@ function renderPredictionsPage() {
         </div>
       </td>
       <td class="cell-sub">${formatShortDateFromTs(b.placedAt)}</td>
-      <td>${b.direction === "up" ? "▲ Up" : "▼ Down"}</td>
+      <td class="num">${fmt(b.guess)}</td>
       <td class="num">${fmt(b.stake)}</td>
-      <td class="num">${fmt(b.startViews)} → ${fmt(b.currentViews)}</td>
+      <td class="num">${fmt(b.currentViews)}</td>
       <td class="bet-countdown">${formatCountdown(b.resolvesAt)}</td>
       <td class="num ${estPayout >= b.stake ? "pos" : "neg"}">${fmt(estPayout)}</td>`;
     tr.addEventListener("click", () => openArticle(b.article));
@@ -1743,9 +1765,9 @@ function renderPredictionsPage() {
         </div>
       </td>
       <td class="cell-sub">${formatShortDateFromTs(b.resolvedAt)}</td>
-      <td>${b.direction === "up" ? "▲ Up" : "▼ Down"}</td>
+      <td class="num">${fmt(b.guess)}</td>
       <td class="num">${fmt(b.stake)}</td>
-      <td class="num">${fmt(b.startViews)} → ${fmt(b.endViews)}</td>
+      <td class="num">${b.endViews == null ? "—" : fmt(b.endViews)}</td>
       <td class="num ${outcome === "even" ? "" : outcome === "up" ? "pos" : "neg"}">${fmt(b.payout)}</td>
       <td class="bet-outcome ${outcome}">${outcomeText}</td>`;
     tr.addEventListener("click", () => openArticle(b.article));
@@ -1854,16 +1876,17 @@ function renderDetOpenBets() {
   const mine = state.bets.open.filter((b) => b.article === d.article);
   ul.innerHTML = "";
   for (const b of mine) {
-    const winning = (b.direction === "up") === (b.currentViews >= b.startViews);
+    const estPayout = estimatePayout(b, b.currentViews);
+    const winning = estPayout >= b.stake;
     const li = document.createElement("li");
     li.innerHTML = `
       <div class="mini-main">
-        <div class="mini-title">${b.direction === "up" ? "▲ Up" : "▼ Down"} · staked ${fmt(b.stake)} pts</div>
+        <div class="mini-title">Guessed ${fmt(b.guess)} · staked ${fmt(b.stake)} pts</div>
         <div class="mini-sub">${formatCountdown(b.resolvesAt)} · currently ${winning ? "winning" : "losing"}</div>
       </div>
       <div class="mini-right">
         <div class="mini-price ${winning ? "pos" : "neg"}">${fmt(b.currentViews)}</div>
-        <div class="mini-change">from ${fmt(b.startViews)}</div>
+        <div class="mini-change">est. payout ${fmt(estPayout)}</div>
       </div>`;
     ul.appendChild(li);
   }
@@ -2252,42 +2275,33 @@ async function reprice(article, title, btn) {
 }
 
 function updatePredictSubmitState() {
+  const guessEl = $("#predict-guess");
   const stakeEl = $("#predict-stake");
-  if (!stakeEl) return;
+  if (!guessEl || !stakeEl) return;
+  const guess = Number(guessEl.value);
   const stake = Number(stakeEl.value);
-  const valid = !!state.predictDirection && Number.isFinite(stake) && stake >= 1;
+  const valid = Number.isFinite(guess) && guess >= 0 && Number.isFinite(stake) && stake >= 1;
   $("#predict-submit").disabled = !valid;
 }
 
 function resetPredictForm() {
-  state.predictDirection = null;
+  const guessEl = $("#predict-guess");
   const stakeEl = $("#predict-stake");
+  if (guessEl) guessEl.value = "";
   if (stakeEl) stakeEl.value = "";
   $("#predict-error").textContent = "";
-  document.querySelectorAll(".dir-btn").forEach((b) => b.classList.remove("active"));
   updatePredictSubmitState();
 }
 
-$("#predict-up").addEventListener("click", () => {
-  state.predictDirection = "up";
-  $("#predict-up").classList.add("active");
-  $("#predict-down").classList.remove("active");
-  updatePredictSubmitState();
-});
-$("#predict-down").addEventListener("click", () => {
-  state.predictDirection = "down";
-  $("#predict-down").classList.add("active");
-  $("#predict-up").classList.remove("active");
-  updatePredictSubmitState();
-});
+$("#predict-guess").addEventListener("input", updatePredictSubmitState);
 $("#predict-stake").addEventListener("input", updatePredictSubmitState);
 
 $("#predict-submit").addEventListener("click", async () => {
   if (!ensureSignedIn()) return;
   const d = state.detail;
   if (!d) return;
+  const guess = Number($("#predict-guess").value);
   const stake = Number($("#predict-stake").value);
-  const direction = state.predictDirection;
   const btn = $("#predict-submit");
   const errEl = $("#predict-error");
   errEl.textContent = "";
@@ -2296,13 +2310,13 @@ $("#predict-submit").addEventListener("click", async () => {
   try {
     const res = await api("/api/bet", {
       method: "POST",
-      body: JSON.stringify({ article: d.article, displayTitle: d.displayTitle, direction, stake }),
+      body: JSON.stringify({ article: d.article, displayTitle: d.displayTitle, guess, stake }),
     });
     state.bets = res.bets;
     state.me = res.portfolio;
     state.user = res.portfolio.user;
     renderChrome();
-    toast(`Predicted "${d.displayTitle}" will go ${direction} — staked ${fmt(stake)} pts.`);
+    toast(`Predicted "${d.displayTitle}" at ${fmt(guess)} views — staked ${fmt(stake)} pts.`);
     resetPredictForm();
     renderDetOpenBets();
   } catch (err) {

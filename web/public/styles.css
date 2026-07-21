@@ -566,14 +566,6 @@ img.thumb { border: 1px solid var(--border); }
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 0 16px 6px;
 }
-.direction-toggle { display: flex; gap: 6px; }
-.dir-btn {
-  border: 1px solid var(--border); background: var(--bg); color: var(--muted);
-  font-family: inherit; font-weight: 700; font-size: 13px;
-  padding: 9px 16px; border-radius: 9px; cursor: pointer;
-}
-.dir-btn.up.active { background: var(--green-soft); color: var(--green); border-color: var(--green); }
-.dir-btn.down.active { background: var(--red-soft); color: var(--red); border-color: var(--red); }
 .predict-form input[type="number"] { width: 130px; }
 .predict-form .btn-primary:disabled { background: #c8ccd1; cursor: default; }
 

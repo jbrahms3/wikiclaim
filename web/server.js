@@ -650,14 +650,14 @@ app.post(
   wrap(async (req, res) => {
     const article = String(req.body.article || "");
     const displayTitle = String(req.body.displayTitle || article.replace(/_/g, " "));
-    const direction = String(req.body.direction || "");
+    const guess = req.body.guess;
     const stake = req.body.stake;
     if (!article) throw new Error("Missing article.");
     const result = await placeBet(req.userId, {
       project: "en.wikipedia",
       article,
       displayTitle,
-      direction,
+      guess,
       stake,
     });
     res.json({ ...result, bets: await bundledBets(req.userId), portfolio: await portfolio(req.userId) });

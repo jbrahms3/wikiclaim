@@ -827,27 +827,70 @@ export async function leaderboard() {
 }
 
 /**
- * Predictions: a 24h directional bet on an article's daily view count (the
- * same number shown elsewhere as "Views (24h)") rather than its price.
- * Price has built-in upward drift for weeks after any spike (it's baked from
- * a rolling 30-day view total, see wikimedia.js), which made "will the price
- * go up" a near-free bet on anything already trending. Raw daily views don't
- * have that inertia - they're genuinely volatile day to day, so calling the
- * direction takes an actual read on the article. Stake is escrowed (debited)
- * immediately; payout is settled lazily, the same pattern as holdings - no
- * cron, resolved whenever the bettor is next active, past-due bets are just
- * caught up on read.
+ * Predictions: guess tomorrow's exact daily view count for an article (the
+ * same number shown elsewhere as "Views (24h)") rather than just its
+ * direction. A plain up/down call on a trending page was near-free money
+ * (see the old comment here about price's built-in drift - raw daily views
+ * don't have that problem, but direction alone is still a coin flip once
+ * you already know the trend). Guessing the actual number takes a real read
+ * on the article, and the tolerance for "close enough" scales with how much
+ * that specific article's traffic naturally moves day to day - see
+ * betBand(). Stake is escrowed (debited) immediately; payout is settled
+ * lazily, the same pattern as holdings - no cron, resolved whenever the
+ * bettor is next active, past-due bets are just caught up on read.
+ *
+ * Betting is gated to articles with real, checkable traffic
+ * (MIN_BET_BASELINE_VIEWS) so a near-zero-traffic page - where a handful of
+ * refreshes can move the daily count by 1000%+ - can't be bet on at all.
+ * Even above that floor, the view count actually used to grade a bet is
+ * capped at BET_MAX_GRADED_MULTIPLE times the article's pre-bet baseline
+ * (see resolveBetIfDue), so inflating an obscure article's traffic to chase
+ * your own guess stops paying off well past the point it'd look organic.
  */
 const BET_DURATION_MS = 24 * 60 * 60 * 1000;
 const MIN_STAKE = 1;
 
-export async function placeBet(userId, { project, article, displayTitle, direction, stake }) {
+// How much history informs an article's baseline traffic and volatility.
+const BET_HISTORY_DAYS = 14;
+const MIN_BET_HISTORY_DAYS = 5; // too little data to trust a baseline/band
+
+const MIN_BET_BASELINE_VIEWS = 50;
+
+// Payout curve: full payout inside half the article's typical daily swing
+// (band), falling linearly to zero by twice that swing. The band itself is
+// clamped so a dead-flat article doesn't demand a pixel-perfect guess, and
+// an extremely spiky one doesn't hand out full payout for nearly any guess.
+const BET_BAND_FLOOR = 0.08;
+const BET_BAND_CEILING = 0.75;
+const BET_BAND_INNER = 0.5; // x band = still full payout
+const BET_BAND_OUTER = 2; // x band = payout hits zero
+const BET_MAX_PAYOUT_MULTIPLE = 3; // stake multiplier at/inside the inner band
+
+// Caps the view count used to grade a bet at this multiple of the article's
+// pre-bet baseline - "the number has to increase by a lot to count", but not
+// unboundedly, so self-inflating an obscure article's traffic buys nothing
+// once it's past ~1000% over its own normal level.
+const BET_MAX_GRADED_MULTIPLE = 11; // 11x baseline = +1000%
+
+function betBand(sigma) {
+  return Math.min(BET_BAND_CEILING, Math.max(BET_BAND_FLOOR, sigma));
+}
+
+function betPayoutMultiple(relError, band) {
+  if (relError <= BET_BAND_INNER * band) return BET_MAX_PAYOUT_MULTIPLE;
+  if (relError >= BET_BAND_OUTER * band) return 0;
+  const span = (BET_BAND_OUTER - BET_BAND_INNER) * band;
+  return BET_MAX_PAYOUT_MULTIPLE * (1 - (relError - BET_BAND_INNER * band) / span);
+}
+
+export async function placeBet(userId, { project, article, displayTitle, guess, stake }) {
   stake = Math.round(Number(stake));
   if (!Number.isFinite(stake) || stake < MIN_STAKE) {
     throw new Error(`Minimum prediction stake is ${MIN_STAKE} point.`);
   }
-  if (direction !== "up" && direction !== "down") {
-    throw new Error("Direction must be 'up' or 'down'.");
+  guess = Math.round(Number(guess));
+  if (!Number.isFinite(guess) || guess < 0) {
+    throw new Error("Enter a valid guess for tomorrow's view count.");
   }
 
   // Force a live check, same as buying - refuse rather than lock in a bet
@@ -868,11 +911,37 @@ export async function placeBet(userId, { project, article, displayTitle, directi
     );
   }
   const startViews = Math.max(1, price.latestViews);
+
+  const history = await getArticleHistory(project, article, BET_HISTORY_DAYS);
+  if (history.length < MIN_BET_HISTORY_DAYS) {
+    throw new Error("Not enough traffic history for this article to predict on yet.");
+  }
+  const baselineAvg = history.reduce((sum, d) => sum + d.views, 0) / history.length;
+  if (baselineAvg < MIN_BET_BASELINE_VIEWS) {
+    throw new Error(
+      `This article doesn't get enough traffic to predict on (needs an average of at least ${MIN_BET_BASELINE_VIEWS} views/day - it's getting about ${Math.round(baselineAvg)}).`
+    );
+  }
+  // Typical day-to-day relative swing, averaged over every consecutive pair
+  // in the history window - this is what sets how forgiving the guess needs
+  // to be for THIS article (see betBand).
+  let sigmaSum = 0;
+  let sigmaCount = 0;
+  for (let i = 1; i < history.length; i++) {
+    const prev = history[i - 1].views;
+    if (prev > 0) {
+      sigmaSum += Math.abs(history[i].views - prev) / prev;
+      sigmaCount++;
+    }
+  }
+  const sigma = sigmaCount ? sigmaSum / sigmaCount : BET_BAND_CEILING;
+  const band = betBand(sigma);
+
   // startViews came from latestAvailableDate() (Wikimedia's ~1-day publish
   // lag means that's always "yesterday", already final by the time we can
-  // read it) - the bet is really "will the NEXT day's views be higher or
-  // lower", so targetDate is the specific calendar day whose figure settles
-  // it, not just "24 hours from now".
+  // read it) - the bet is really "what will the NEXT day's views be", so
+  // targetDate is the specific calendar day whose figure settles it, not
+  // just "24 hours from now".
   const targetDate = formatYYYYMMDD(addDaysUTC(latestAvailableDate(), 1));
 
   const creditsLeft = await store.tryDebit(userId, stake);
@@ -890,14 +959,17 @@ export async function placeBet(userId, { project, article, displayTitle, directi
     project,
     article,
     displayTitle,
-    direction,
+    guess,
     stake,
     startViews,
+    baselineAvg,
+    band,
     targetDate,
     placedAt: now,
     resolvesAt: now + BET_DURATION_MS, // kept as a display estimate - actual resolution can land earlier
     status: "open",
     endViews: null,
+    gradedViews: null,
     payout: null,
     resolvedAt: null,
   };
@@ -926,10 +998,14 @@ function targetDateFor(bet) {
  * day is usually ready well before the 24h display estimate (bet late in the
  * UTC day and it can be ready in minutes), so this checks for the real data
  * every time a settle pass runs rather than waiting out the clock. Payout
- * scales with the real % move in daily views: guess the direction right and
- * get more than your stake back, wrong and get less (floored at 0 - you
- * can't lose more than you staked). A Wikimedia hiccup at resolution time
- * refunds the stake instead of penalizing the player for an API outage.
+ * scales with how close the guess was, within the band computed at bet
+ * placement (see placeBet) - closer than half the band pays the max
+ * multiple, farther than twice the band pays nothing (floored at 0 - you
+ * can't lose more than you staked). The view count used to grade a guess is
+ * capped at BET_MAX_GRADED_MULTIPLE times the article's pre-bet baseline, so
+ * inflating traffic to chase your own guess stops helping well before it
+ * would matter. A Wikimedia hiccup at resolution time refunds the stake
+ * instead of penalizing the player for an API outage.
  */
 async function resolveBetIfDue(bet) {
   if (bet.status !== "open") return null;
@@ -941,6 +1017,7 @@ async function resolveBetIfDue(bet) {
 
   const giveUp = Date.now() >= bet.resolvesAt + RESOLUTION_GRACE_MS;
   let endViews = bet.startViews;
+  let published = false;
   try {
     const target = parseDate(targetDate);
     const views = await fetchDailyPageviews(bet.project, bet.article, target, target);
@@ -950,22 +1027,40 @@ async function resolveBetIfDue(bet) {
       // yet - keep waiting for a later settle pass unless we've given it a
       // full extra day of grace already.
       if (!giveUp) return null;
-      // Past the grace period: unknowable, so refund rather than guess -
-      // endViews stays at startViews (break-even), same as an API hiccup.
+      // Past the grace period: unknowable, so refund rather than guess.
     } else {
       endViews = Math.max(1, raw);
+      published = true;
     }
   } catch {
     if (!giveUp) return null;
-    /* endViews stays at startViews -> break-even refund */
+    /* unpublished/unknowable -> refund below */
   }
 
-  const pctChange = (endViews - bet.startViews) / bet.startViews;
-  const signedPct = bet.direction === "up" ? pctChange : -pctChange;
-  const payout = Math.max(0, Math.round(bet.stake * (1 + signedPct)));
+  let payout;
+  let gradedViews = null;
+  // Bets placed before the exact-guess mechanic shipped only have a
+  // direction, not a guess - resolve those the old way instead of grading
+  // them by rules they were never placed under.
+  const isLegacyDirectionBet = bet.guess == null && bet.direction != null;
+  if (!published) {
+    payout = bet.stake; // unknowable - refund rather than guess
+  } else if (isLegacyDirectionBet) {
+    const pctChange = (endViews - bet.startViews) / bet.startViews;
+    const signedPct = bet.direction === "up" ? pctChange : -pctChange;
+    payout = Math.max(0, Math.round(bet.stake * (1 + signedPct)));
+  } else {
+    const baselineAvg = bet.baselineAvg || bet.startViews;
+    const cap = Math.max(1, Math.round(baselineAvg * BET_MAX_GRADED_MULTIPLE));
+    gradedViews = Math.min(endViews, cap);
+    const relError = Math.abs(bet.guess - gradedViews) / Math.max(1, gradedViews);
+    const band = bet.band || BET_BAND_CEILING;
+    payout = Math.round(bet.stake * betPayoutMultiple(relError, band));
+  }
 
   const applied = await store.resolveBet(bet.id, {
     endViews,
+    gradedViews,
     payout,
     resolvedAt: Date.now(),
   });
