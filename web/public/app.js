@@ -563,27 +563,27 @@ const TOUR_STEPS = [
   {
     icon: "📖",
     title: "Welcome to WikiPicks",
-    body: "Every Wikipedia article is a tradeable asset here, priced from its real, live traffic — not made up. Buy ones you think are undervalued, earn from their real daily readership, and climb the leaderboard. Browsing is free; you only need to sign in to buy, sell, predict, or watch something.",
+    body: "Every Wikipedia article is a tradeable asset, priced from its real traffic. Buy undervalued ones, earn from their readership, and climb the leaderboard. Browsing is free — sign in only to buy, sell, predict, or watch.",
   },
   {
     icon: "💰",
     title: "Claim an article",
-    body: "An article's price is its average daily views over the last year, plus a bonus for a strong recent month — real traffic sets the price, not guesswork. Ownership is exclusive: once you claim it, it's off the market for everyone else. Find articles on the Market or Discover page, or just search.",
+    body: "Price = a year of average daily views, plus a bonus for a strong recent month. Ownership is exclusive — once claimed, it's off the market. Find articles on Market, Discover, or search.",
   },
   {
     icon: "📈",
     title: "Earn every day",
-    body: "Each article you own pays you points equal to its real view count, every single day, starting the day after you buy it. Wikipedia publishes traffic with about a day's lag, so today's earnings show up tomorrow — settlement happens automatically whenever you open the app.",
+    body: "Owned articles pay you their real daily view count in points, starting the day after purchase. Views publish about a day late, so today's earnings show up tomorrow — settled automatically whenever you open the app.",
   },
   {
     icon: "🔮",
     title: "Predict without owning",
-    body: "Stake points on whether an article's daily views will go up or down — no purchase required. Guess right and you get back more than you staked; guess wrong and you get back less. Resolves as soon as the real numbers publish, often well before the 24-hour estimate.",
+    body: "Stake points on whether an article's views will rise or fall — no purchase needed. Right guesses pay more than your stake; wrong ones pay less. Resolves as soon as the real numbers publish.",
   },
   {
     icon: "🏆",
     title: "Track your progress",
-    body: "The Points page shows your balance and progress toward 1,000,000 points, which earns a real $25 gift card. The Leaderboard ranks every player by net worth — points plus the current value of everything you own. Start with 5,000 points and see how far you can grow it.",
+    body: "The Points page tracks your balance and progress toward 1,000,000 points ($25 gift card). The Leaderboard ranks net worth — points plus everything you own. Start with 5,000 points.",
   },
 ];
 
