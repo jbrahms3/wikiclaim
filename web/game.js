@@ -23,7 +23,7 @@ import {
 const STARTING_CREDITS = 5000;
 
 // Milestone for the Points page's progress bar - reaching this balance earns
-// a real $100 gift card (fulfilled manually, outside the app).
+// a real $25 gift card (fulfilled manually, outside the app).
 export const POINTS_GOAL = 1_000_000;
 
 function fmtDate(d) {

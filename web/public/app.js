@@ -583,7 +583,7 @@ const TOUR_STEPS = [
   {
     icon: "🏆",
     title: "Track your progress",
-    body: "The Points page shows your balance and progress toward 1,000,000 points, which earns a real $100 gift card. The Leaderboard ranks every player by net worth — points plus the current value of everything you own. Start with 5,000 points and see how far you can grow it.",
+    body: "The Points page shows your balance and progress toward 1,000,000 points, which earns a real $25 gift card. The Leaderboard ranks every player by net worth — points plus the current value of everything you own. Start with 5,000 points and see how far you can grow it.",
   },
 ];
 
@@ -1229,7 +1229,7 @@ function updateProgressBar(credits, goal) {
   $("#pts-progress-current").textContent = `${fmt(credits)} pts`;
   $("#pts-progress-footer").textContent =
     credits >= goal
-      ? "🎉 You've passed 1,000,000 points — you've earned a $100 gift card!"
+      ? "🎉 You've passed 1,000,000 points — you've earned a $25 gift card!"
       : `${pct < 1 ? pct.toFixed(2) : Math.round(pct)}% of the way to 1,000,000 pts`;
 }
 
