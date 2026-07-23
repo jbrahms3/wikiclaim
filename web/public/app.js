@@ -401,6 +401,25 @@ for (const id of ["hdr-profile", "sidebar-profile"]) {
   });
 }
 
+// Nothing ever retried a failed restore, so one transient slow spell (a cold
+// server, or Wikimedia's publish lag making /api/me slow) left the app on
+// "Checking your session…" with a manual page refresh as the only way out.
+// Keep trying quietly in the background so it heals itself instead.
+let restoreRetryTimer = null;
+let restoreRetries = 0;
+const RESTORE_RETRY_DELAYS_MS = [10000, 30000, 60000];
+function scheduleRestoreRetry() {
+  const delay = RESTORE_RETRY_DELAYS_MS[restoreRetries];
+  if (delay == null) return false; // out of attempts; the "try refreshing" toast stands
+  restoreRetries++;
+  clearTimeout(restoreRetryTimer);
+  restoreRetryTimer = setTimeout(() => {
+    // Only if it's still broken and there's still a session to restore.
+    if (state.authStatus === "error" && window.Clerk?.user) signInSucceeded(window.Clerk.user);
+  }, delay);
+  return true;
+}
+
 let signingIn = false;
 async function signInSucceeded(clerkUser) {
   if (signingIn) return; // the Clerk listener can fire repeatedly; don't stack
@@ -446,6 +465,8 @@ async function signInSucceeded(clerkUser) {
       return;
     }
     state.authStatus = "signedIn";
+    clearTimeout(restoreRetryTimer);
+    restoreRetries = 0;
     renderAuthChrome();
     loadSecondary();
     renderRoute();
@@ -455,7 +476,13 @@ async function signInSucceeded(clerkUser) {
     renderAuthChrome();
     renderRoute();
     console.error("Failed to restore signed-in account:", err);
-    toast("Signed in, but your account data couldn't be loaded. Try refreshing.", true);
+    const retrying = scheduleRestoreRetry();
+    toast(
+      retrying
+        ? "Your account data is taking a while to load — retrying…"
+        : "Signed in, but your account data couldn't be loaded. Try refreshing.",
+      true
+    );
   } finally {
     signingIn = false;
   }

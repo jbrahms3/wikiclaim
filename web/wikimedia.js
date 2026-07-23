@@ -250,7 +250,7 @@ export async function getPagePrice(project, article, { force = false, allowStale
   // a background refresh so the next read is fresh.
   if (!force && allowStale && cached) {
     if (!inflightPrices.has(key)) {
-      const bg = fetchAndCachePrice(key, project, article).finally(() =>
+      const bg = refreshPrice(key, project, article, cached).finally(() =>
         inflightPrices.delete(key)
       );
       bg.catch(() => {}); // fire-and-forget; a failed refresh just keeps the stale value
@@ -260,11 +260,47 @@ export async function getPagePrice(project, article, { force = false, allowStale
   }
 
   if (inflightPrices.has(key)) return inflightPrices.get(key);
-  const promise = fetchAndCachePrice(key, project, article).finally(() =>
+  const promise = refreshPrice(key, project, article, cached).finally(() =>
     inflightPrices.delete(key)
   );
   inflightPrices.set(key, promise);
   return promise;
+}
+
+// Cheap "has the newest day landed yet?" probe: a one-day pageviews request,
+// which 404s while that day is unpublished and therefore lands in
+// fetchDailyPageviews's short-range negative cache. So during the publish lag
+// this costs one tiny request per article per EMPTY_RANGE_TTL_MS and nothing
+// in between.
+async function latestDayPublished(project, article) {
+  const end = latestAvailableDate();
+  try {
+    const views = await fetchDailyPageviews(project, article, end, end);
+    return views.has(formatYYYYMMDD(end));
+  } catch {
+    return true; // can't tell - let the normal refresh path decide
+  }
+}
+
+// An entry whose ONLY staleness is pendingLatest gets re-checked with that
+// probe instead of a full re-price. Without this, the short pendingLatest TTL
+// applies to every article in the app at once for the entire publish-lag
+// window (hours, every evening) - meaning a 365-day fetch per article every
+// few minutes, all queued behind the same limiter as settlement's fetches.
+// That contention is what made /api/me slow enough to time out. Re-pricing
+// still happens the moment the day actually publishes, and the ordinary 6h
+// TTL is still an upper bound.
+async function refreshPrice(key, project, article, cached) {
+  if (
+    cached &&
+    cached.pendingLatest &&
+    !looksEmpty(cached) &&
+    Date.now() - cached.updatedAt < PRICE_CACHE_MS &&
+    !(await latestDayPublished(project, article))
+  ) {
+    return withDerived(cached);
+  }
+  return fetchAndCachePrice(key, project, article);
 }
 
 async function fetchAndCachePrice(key, project, article) {

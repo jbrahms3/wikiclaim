@@ -129,6 +129,32 @@ export function contiguousSettlement(views, start, latest, incomingStreakDays = 
   return { earned, latestEarned, settledThrough, escrowDelta, streakDays };
 }
 
+// Right after the UTC day rolls over (early evening in the Americas),
+// Wikimedia hasn't published that day for anything yet - so no holding can
+// settle, and every settleHolding call during that window is guaranteed
+// wasted work. It isn't cheap work either: the fetch spans
+// EARNINGS_BASELINE_WINDOW_DAYS of lookback plus the settlement window, so it
+// comes back 200 (the baseline days ARE published, only the newest is
+// missing) and neither the pageviews negative cache (404s only, short ranges
+// only) nor the price cache absorbs it. That left one live Wikimedia round
+// trip per holding on every single /api/me for the whole multi-hour lag
+// window, queued behind the same global limiter as everything else - which is
+// what pushed /api/me past the frontend's request timeout and left the page
+// sitting on "Checking your session...". Remember the miss per article
+// instead and answer "nothing to settle yet" until it's worth another look.
+const settlementBlocked = new Map(); // "project::article" -> { date, until }
+const SETTLEMENT_RETRY_MS = 10 * 60 * 1000;
+
+function rememberUnsettled(key, date) {
+  // Keys are per-article, so this is naturally bounded by the number of
+  // distinct owned pages; sweep expired entries anyway if it ever gets big.
+  if (settlementBlocked.size > 5000) {
+    const now = Date.now();
+    for (const [k, v] of settlementBlocked) if (v.until <= now) settlementBlocked.delete(k);
+  }
+  settlementBlocked.set(key, { date, until: Date.now() + SETTLEMENT_RETRY_MS });
+}
+
 /**
  * Credit a single holding for every not-yet-settled day up to the latest
  * available pageview date. Mutates and saves the holding + owner's credits.
@@ -139,6 +165,13 @@ export async function settleHolding(holding) {
   // First earning day is the day AFTER purchase (you "paid" the purchase-day price).
   const start = addDaysUTC(parseDate(holding.lastSettledDate), 1);
   if (start > latest) return 0;
+
+  const latestDate = fmtDate(latest);
+  const blockKey = `${holding.project}::${holding.article}`;
+  const blocked = settlementBlocked.get(blockKey);
+  // Scoped to the exact day we're waiting on, so a new UTC day always gets a
+  // fresh attempt rather than inheriting the previous day's backoff.
+  if (blocked && blocked.date === latestDate && Date.now() < blocked.until) return 0;
 
   // Fetch extra lookback so contiguousSettlement can compute a real rolling
   // baseline for every day in the settlement window, not just the window
@@ -157,6 +190,12 @@ export async function settleHolding(holding) {
     latest,
     holding.escrowStreakDays || 0
   );
+  // Anything short of the latest day means it isn't published for this
+  // article yet (publish lag isn't uniform across articles). Back off before
+  // returning - including on the partial-settle path, where the days we DID
+  // get still have to be credited below.
+  if (settledThrough !== latestDate) rememberUnsettled(blockKey, latestDate);
+  else settlementBlocked.delete(blockKey);
   // No requested day was actually published. Leave the cursor untouched so
   // the holding can retry instead of permanently losing those earnings.
   if (!settledThrough) return 0;
@@ -298,13 +337,50 @@ export async function settleUser(userId) {
   return earned.reduce((sum, n) => sum + n, 0);
 }
 
+// One settlement pass per user at a time. /api/me is hit by page load, by
+// the post-trade refresh, and by the frontend's own retries - without this,
+// a slow pass gets duplicated by every one of those instead of joined, and
+// each duplicate re-does the same Wikimedia work.
+const inflightSettles = new Map(); // userId -> Promise
+function settleOnce(userId) {
+  let pass = inflightSettles.get(userId);
+  if (!pass) {
+    pass = (async () => {
+      await settleUser(userId);
+      await settleBets(userId);
+    })().finally(() => inflightSettles.delete(userId));
+    pass.catch(() => {}); // a caller may stop waiting on it; never leave it unhandled
+    inflightSettles.set(userId, pass);
+  }
+  return pass;
+}
+
+// Settlement is idempotent and compare-and-set guarded, so it's safe to stop
+// WAITING on a pass without stopping the pass: whatever doesn't finish in
+// time keeps running and lands on a later load. What isn't safe is letting a
+// slow Wikimedia day hold /api/me open past the frontend's request timeout -
+// that's what leaves the app stuck on "Checking your session..." until the
+// user refreshes. Answer with the state we have instead; holdings that
+// didn't settle in time simply read as "Pending", which is what they are.
+const SETTLE_DEADLINE_MS = 8000;
+
+function withDeadline(promise, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    promise.then(done, done);
+  });
+}
+
 /**
  * Build the portfolio view: each holding with its live current price, plus
  * account totals (credits, net worth). Prices are fetched (cached) live.
  */
 export async function portfolio(userId) {
-  await settleUser(userId);
-  await settleBets(userId);
+  await withDeadline(settleOnce(userId), SETTLE_DEADLINE_MS);
   const user = await store.getUser(userId);
   const holdings = await store.holdingsForUser(userId);
   // A listing's id is its holding's id, so this naturally only matches
