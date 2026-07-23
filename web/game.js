@@ -360,16 +360,19 @@ function settleOnce(userId) {
 // time keeps running and lands on a later load. What isn't safe is letting a
 // slow Wikimedia day hold /api/me open past the frontend's request timeout -
 // that's what leaves the app stuck on "Checking your session..." until the
-// user refreshes. Answer with the state we have instead; holdings that
-// didn't settle in time simply read as "Pending", which is what they are.
+// user refreshes. Answer with the state we have instead; the `settling` flag
+// on the response (see portfolio()) tells the frontend to quietly re-poll
+// rather than leave a manual refresh as the only way to see the real numbers.
 const SETTLE_DEADLINE_MS = 8000;
 
+// Resolves to true if `ms` elapsed before `promise` did (i.e. the caller gave
+// up waiting), false if `promise` won the race.
 function withDeadline(promise, ms) {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
+    const timer = setTimeout(() => resolve(true), ms);
     const done = () => {
       clearTimeout(timer);
-      resolve();
+      resolve(false);
     };
     promise.then(done, done);
   });
@@ -380,7 +383,7 @@ function withDeadline(promise, ms) {
  * account totals (credits, net worth). Prices are fetched (cached) live.
  */
 export async function portfolio(userId) {
-  await withDeadline(settleOnce(userId), SETTLE_DEADLINE_MS);
+  const settling = await withDeadline(settleOnce(userId), SETTLE_DEADLINE_MS);
   const user = await store.getUser(userId);
   const holdings = await store.holdingsForUser(userId);
   // A listing's id is its holding's id, so this naturally only matches
@@ -468,6 +471,15 @@ export async function portfolio(userId) {
     todayEarningsPending,
     totalEarned,
     netWorth: user.credits + holdingsValue,
+    // True when the settlement pass hadn't finished by SETTLE_DEADLINE_MS, so
+    // this response was built from whatever was already credited - a real
+    // settle that's still catching up on Wikimedia round trips, still
+    // running in the background. Distinct from todayEarningsPending (which
+    // means Wikimedia itself has no data yet): this means we have the data
+    // but haven't necessarily applied it to what's shown here yet. The
+    // frontend uses it to quietly re-poll instead of leaving a manual
+    // refresh as the only way to see the credited amount.
+    settling,
   };
 }
 

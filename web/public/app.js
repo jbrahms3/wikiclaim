@@ -663,12 +663,34 @@ $("#tour-next-btn").addEventListener("click", () => {
 
 /* ================= data loading ================= */
 
+// The server bounds how long /api/me waits for settlement to finish (see
+// SETTLE_DEADLINE_MS in game.js) so a slow Wikimedia round trip can't hang
+// the request - when that deadline is hit, me.settling is true and the
+// numbers just returned may already be stale (the settle pass is still
+// running server-side and will land moments later). Without this, seeing the
+// credited amount meant manually refreshing the page; instead, quietly ask
+// again shortly after. Capped so a persistently-stuck pass doesn't poll
+// forever.
+let settleRefreshTimer = null;
+let settleRefreshAttempts = 0;
+const SETTLE_REFRESH_DELAY_MS = 3000;
+const SETTLE_REFRESH_MAX_ATTEMPTS = 5;
+
 async function loadMe() {
   const me = await api("/api/me");
   if (!me.user) return false;
   state.user = me.user;
   state.me = me;
   renderChrome();
+  clearTimeout(settleRefreshTimer);
+  if (me.settling && settleRefreshAttempts < SETTLE_REFRESH_MAX_ATTEMPTS) {
+    settleRefreshAttempts++;
+    settleRefreshTimer = setTimeout(() => {
+      if (state.user) loadMe().catch(() => {});
+    }, SETTLE_REFRESH_DELAY_MS);
+  } else {
+    settleRefreshAttempts = 0;
+  }
   return true;
 }
 
