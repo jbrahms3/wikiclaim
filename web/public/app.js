@@ -44,6 +44,7 @@ const state = {
   ovDays: 30,
   detDays: 30,
   moversTab: "trending",
+  marketSort: "trending",
   marketTab: "primary",
   chartSeq: 0,
   ptsRange: "day", // "day" | "week" | "month" - see EARNINGS_BUCKETERS
@@ -1532,6 +1533,23 @@ function renderDiscoverPage() {
   else fetchDiscover();
 }
 
+// The sort toggle only means something for the unfiltered trending list -
+// search results have their own relevance order.
+function renderMarketSortTabs() {
+  const q = state.route.q || "";
+  $("#market-sort-tabs").hidden = !!q;
+  $("#market-sort-tabs").querySelectorAll(".pill-tab").forEach((t) =>
+    t.classList.toggle("active", t.dataset.sort === state.marketSort)
+  );
+}
+
+$("#market-sort-tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".pill-tab");
+  if (!tab) return;
+  state.marketSort = tab.dataset.sort;
+  renderMarket();
+});
+
 async function renderMarket() {
   // Search results only apply to the primary market - jump back to it if a
   // search lands while the secondary tab is showing.
@@ -1541,7 +1559,13 @@ async function renderMarket() {
 
   const q = state.route.q || "";
   $("#search-input").value = q;
-  $("#market-list-title").textContent = q ? `Results for "${q}"` : "Trending Articles";
+  renderMarketSortTabs();
+  const gainers = !q && state.marketSort === "gainers";
+  $("#market-list-title").textContent = q
+    ? `Results for "${q}"`
+    : gainers
+      ? "Top Gainers"
+      : "Trending Articles";
   const tbody = $("#market-table tbody");
   $("#market-empty").hidden = true;
 
@@ -1562,6 +1586,10 @@ async function renderMarket() {
       tbody.innerHTML = `<tr><td colspan="6" class="empty">Loading trending articles…</td></tr>`;
       return;
     }
+    // The full candidate pool, ranked by gain rather than price - unlike the
+    // Overview page's Market Movers widget (which only has room for 5), every
+    // trending article is shown here.
+    if (gainers) items = [...items].sort((a, b) => (b.changePct || 0) - (a.changePct || 0));
   }
 
   tbody.innerHTML = "";

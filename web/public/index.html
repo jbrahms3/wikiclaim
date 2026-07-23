@@ -299,7 +299,13 @@
             </div>
 
             <div class="card table-card" id="market-primary-panel">
-              <div class="card-head"><h2 id="market-list-title">Trending Articles</h2></div>
+              <div class="card-head">
+                <h2 id="market-list-title">Trending Articles</h2>
+                <div class="pill-tabs" id="market-sort-tabs">
+                  <button class="pill-tab active" data-sort="trending">Trending</button>
+                  <button class="pill-tab" data-sort="gainers">Top Gainers</button>
+                </div>
+              </div>
               <table class="table" id="market-table">
                 <thead>
                   <tr><th>Article</th><th>Price</th><th>Views (24h)</th><th>Change</th><th>7D</th><th></th></tr>
