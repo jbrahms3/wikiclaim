@@ -608,7 +608,15 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
  * the article's real price, so the portfolio's gain/loss immediately
  * reflects how the roll went.
  */
-export const LOOTBOX_COST = 5000;
+// getRandomArticles draws uniformly from ALL ~6.8M English articles (no
+// popularity filter), and Wikipedia's traffic is a brutal long tail - a real
+// sample of that pool priced a median article at only ~50-65 pts, with 96%
+// of draws worth less than the old 5,000-pt cost (== the entire starting
+// balance). 100 sits near that median: most pulls land close to breakeven,
+// the fat tail of occasional four/five-figure articles still makes for real
+// jackpots, and losing a bad roll no longer costs a meaningful chunk of a
+// new player's whole balance.
+export const LOOTBOX_COST = 100;
 
 // The site owner's account can open loot boxes for free (for testing/demoing
 // without burning real credits) - everyone else pays the normal cost.

@@ -2156,7 +2156,7 @@ async function performBuy(r, btn) {
 
 /* ================= loot box ================= */
 
-let lootboxCost = 5000; // refreshed from /api/lootbox; this is just the initial guess shown before that resolves
+let lootboxCost = 100; // refreshed from /api/lootbox; this is just the initial guess shown before that resolves
 const lootboxCostText = () => (lootboxCost > 0 ? `${fmt(lootboxCost)} pts` : "Free");
 
 function renderLootboxPage() {
