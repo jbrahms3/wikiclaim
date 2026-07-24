@@ -461,6 +461,55 @@ export async function getPageMeta(articles) {
   return result;
 }
 
+// A brand-new (or newly-notable) article can spike to huge pageviews within
+// hours purely off novelty or a news cycle, with no track record behind the
+// number - buying at that moment is a bet on the news cycle, not on the
+// article's real, lasting readership. Requiring a minimum age keeps the
+// market to articles Wikimedia has actually had a chance to accumulate a
+// genuine pageview history for.
+export const MIN_ARTICLE_AGE_DAYS = 14;
+
+// A page's creation date is immutable, unlike its traffic - cache hits never
+// expire.
+const creationDateCache = new Map(); // article -> Date | null
+
+/**
+ * Date of an article's first revision (its creation date). Resolves through
+ * redirects, same as getPageMeta. Returns null if it couldn't be determined
+ * (page doesn't exist, or Wikipedia's API is unreachable) - callers decide
+ * how to treat "unknown."
+ */
+export async function getPageCreationDate(article) {
+  if (creationDateCache.has(article)) return creationDateCache.get(article);
+  let date = null;
+  try {
+    const url =
+      "https://en.wikipedia.org/w/api.php?" +
+      new URLSearchParams({
+        action: "query",
+        prop: "revisions",
+        rvlimit: "1",
+        rvdir: "newer", // oldest first, so the one result is the creating revision
+        rvprop: "timestamp",
+        titles: article.replace(/_/g, " "),
+        redirects: "1",
+        format: "json",
+        origin: "*",
+      });
+    const res = await fetchWithTimeout(url, { headers: { "User-Agent": UA } });
+    if (res.ok) {
+      const data = await res.json();
+      const page = Object.values(data.query?.pages || {})[0];
+      const ts = page?.revisions?.[0]?.timestamp;
+      if (ts) date = new Date(ts);
+    }
+  } catch {
+    /* leave date null; caller decides how to handle "unknown" */
+  }
+  creationDateCache.set(article, date);
+  return date;
+}
+
 /**
  * Category "indexes" for the header ticker — each is the average price
  * (30-day avg daily views) of a fixed basket of representative articles,

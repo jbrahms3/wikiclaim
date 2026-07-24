@@ -15,6 +15,8 @@ import {
   parseDate,
   formatYYYYMMDD,
   getRandomArticles,
+  getPageCreationDate,
+  MIN_ARTICLE_AGE_DAYS,
 } from "./wikimedia.js";
 
 // Price = yearly daily-view average + a recency premium (last 30 days'
@@ -531,6 +533,24 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
         : "This article is already owned by another player and isn't listed for sale."
     );
   }
+  // See MIN_ARTICLE_AGE_DAYS: a brand-new article can spike purely off
+  // novelty before it has any real readership track record. Checked before
+  // pricing so a rejected article doesn't also cost a live Wikimedia price
+  // fetch.
+  const createdAt = await getPageCreationDate(article);
+  if (!createdAt) {
+    throw new Error(
+      "Couldn't verify this article's age right now. Try again in a few seconds."
+    );
+  }
+  const ageDays = Math.floor((Date.now() - createdAt.getTime()) / 86400000);
+  if (ageDays < MIN_ARTICLE_AGE_DAYS) {
+    throw new Error(
+      `This article is too new to buy - it must be at least ${MIN_ARTICLE_AGE_DAYS} days old ` +
+        `(created ${ageDays === 1 ? "1 day" : `${ageDays} days`} ago).`
+    );
+  }
+
   // Always re-verify against live data at purchase time; if Wikimedia gives
   // us nothing back, refuse to transact rather than sell at a bogus price.
   const price = await getPagePrice(project, article, { force: true });
@@ -608,6 +628,13 @@ export async function openLootBox(userId) {
     const [candidate] = await getRandomArticles(1);
     if (!candidate) continue;
     if (await store.findAnyHolding("en.wikipedia", candidate.article)) continue;
+
+    // Same MIN_ARTICLE_AGE_DAYS gate as a direct buy - a random pull
+    // shouldn't be able to hand out a novelty-spiking new article either.
+    // Unlike buyPage, an unknown age here just means "try another
+    // candidate" rather than failing the whole box.
+    const createdAt = await getPageCreationDate(candidate.article);
+    if (!createdAt || (Date.now() - createdAt.getTime()) / 86400000 < MIN_ARTICLE_AGE_DAYS) continue;
 
     let price;
     try {
