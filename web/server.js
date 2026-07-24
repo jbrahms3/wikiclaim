@@ -740,6 +740,9 @@ app.get(
           flagReason: h.escrowFlagReason || null,
           flagReasonText: flagReasonText(h),
           flaggedAt: h.escrowFlaggedAt || null,
+          // AI triage on the spike (see spike-check.js) - advisory only,
+          // null until the async check finishes (or if it's disabled).
+          spikeCheck: h.spikeCheck || null,
           recentViews,
           latestViews: latest ? latest.views : null,
           dayBeforeViews: dayBefore ? dayBefore.views : null,

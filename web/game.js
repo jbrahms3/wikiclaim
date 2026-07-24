@@ -18,6 +18,7 @@ import {
   getPageCreationDate,
   MIN_ARTICLE_AGE_DAYS,
 } from "./wikimedia.js";
+import { checkSpike } from "./spike-check.js";
 
 // Price = yearly daily-view average + a recency premium (last 30 days'
 // total views), see wikimedia.js. 5,000 comfortably covers obscure/niche
@@ -255,6 +256,22 @@ export async function settleHolding(holding) {
       `Holding ${holding.id} (${holding.article}) flagged for manual escrow review: ` +
         `escrow=${newEscrowTotal} streak=${streakDays}d - see /api/admin/escrow.`
     );
+    // Fire-and-forget: the flag itself (and the credited earnings above) are
+    // already committed, so a slow or failed AI check must never hold up
+    // settlement. Only fires at the exact flag transition (guarded by
+    // `applied`), same as flagReason/flaggedAt - never re-runs on every
+    // subsequent settle pass while the holding stays flagged.
+    checkSpike({
+      article: holding.article,
+      displayTitle: holding.displayTitle,
+      lang: holding.lang,
+      date: settledThrough,
+      amount: newEscrowTotal,
+      streakDays,
+      reason: flagReason,
+    })
+      .then((result) => store.setSpikeCheck(holding.id, result))
+      .catch((err) => console.error(`Spike check failed for holding ${holding.id}:`, err));
   }
   return earned;
 }

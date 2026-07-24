@@ -60,6 +60,7 @@ const rowToHolding = (r) =>
         escrowFlagged: r.escrow_flagged,
         escrowFlagReason: r.escrow_flag_reason,
         escrowFlaggedAt: r.escrow_flagged_at,
+        spikeCheck: r.spike_check,
       }
     : null;
 
@@ -239,6 +240,11 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       // escrow_streak_days keep changing afterward.
       await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS escrow_flag_reason TEXT;`);
       await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS escrow_flagged_at BIGINT;`);
+      // AI triage on the spike that caused the flag (see spike-check.js) -
+      // { status, verdict, explanation, citations, checkedAt } or null before
+      // the check runs / if it's disabled. Advisory only: a human reviewer at
+      // /api/admin/escrow still makes the actual release/forfeit call.
+      await q(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS spike_check JSONB;`);
       await q(`
         CREATE TABLE IF NOT EXISTS page_cache (
           key TEXT PRIMARY KEY,
@@ -612,6 +618,14 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         await q(`UPDATE users SET credits = credits + $2 WHERE id = $1`, [h.userId, amount]);
       }
       return { holdingId: id, userId: h.userId, article: h.article, displayTitle: h.displayTitle, amount, credited: !!credit };
+    },
+    // Fire-and-forget from settleHolding, well after the flag itself is
+    // committed - a slow or failed AI check must never hold up settlement.
+    async setSpikeCheck(id, spikeCheck) {
+      await q(`UPDATE holdings SET spike_check = $2 WHERE id = $1`, [
+        id,
+        JSON.stringify(spikeCheck),
+      ]);
     },
 
     // --- notification center ---

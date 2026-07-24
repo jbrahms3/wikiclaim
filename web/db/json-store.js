@@ -249,6 +249,14 @@ export function createJsonStore() {
       persist();
       return { holdingId: id, userId: h.userId, article: h.article, displayTitle: h.displayTitle, amount, credited: !!credit };
     },
+    // Fire-and-forget from settleHolding, well after the flag itself is
+    // committed - a slow or failed AI check must never hold up settlement.
+    async setSpikeCheck(id, spikeCheck) {
+      const h = db.holdings[id];
+      if (!h) return;
+      h.spikeCheck = spikeCheck;
+      persist();
+    },
 
     // --- notification center ---
     // Mirrors pg-store's addOrIncrementNotification: fully synchronous with
