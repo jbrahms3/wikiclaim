@@ -612,10 +612,15 @@ export const LOOTBOX_COST = 5000;
 
 // The site owner's account can open loot boxes for free (for testing/demoing
 // without burning real credits) - everyone else pays the normal cost.
-const FREE_LOOTBOX_EMAILS = new Set(["aidan.somsen@gmail.com"]);
+// Matched by username, not email: `email` is only populated at account
+// creation or via the one-time scripts/backfill-emails.js migration, so an
+// account created before either of those ran can have no email on file at
+// all. `username` has no such gap - it's always set (a generated placeholder
+// until the mandatory first-sign-in prompt, the real chosen name after).
+const FREE_LOOTBOX_USERNAMES = new Set(["jbrahms"]);
 
 function isFreeLootboxAccount(user) {
-  return !!user?.email && FREE_LOOTBOX_EMAILS.has(user.email.toLowerCase());
+  return !!user?.username && FREE_LOOTBOX_USERNAMES.has(user.username.toLowerCase());
 }
 
 // What GET /api/lootbox shows before anyone commits to opening one - needs
