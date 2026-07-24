@@ -2157,6 +2157,7 @@ async function performBuy(r, btn) {
 /* ================= loot box ================= */
 
 let lootboxCost = 5000; // refreshed from /api/lootbox; this is just the initial guess shown before that resolves
+const lootboxCostText = () => (lootboxCost > 0 ? `${fmt(lootboxCost)} pts` : "Free");
 
 function renderLootboxPage() {
   $("#lootbox-signedout").hidden = !authIsSignedOut();
@@ -2165,7 +2166,7 @@ function renderLootboxPage() {
   $("#lootbox-result").hidden = true;
   if (!state.user) return;
 
-  $("#lootbox-cost").textContent = `${fmt(lootboxCost)} pts`;
+  $("#lootbox-cost").textContent = lootboxCostText();
   if (state.me) $("#lootbox-balance").textContent = fmt(state.me.user.credits);
 
   const btn = $("#lootbox-open-btn");
@@ -2176,7 +2177,7 @@ function renderLootboxPage() {
 api("/api/lootbox")
   .then((res) => {
     lootboxCost = res.cost;
-    if (state.route.page === "lootbox") $("#lootbox-cost").textContent = `${fmt(lootboxCost)} pts`;
+    if (state.route.page === "lootbox") $("#lootbox-cost").textContent = lootboxCostText();
   })
   .catch(() => {});
 
@@ -2200,7 +2201,8 @@ $("#lootbox-open-btn").addEventListener("click", async () => {
         : diff < 0
           ? `worth ${fmt(res.marketValue)} pts — ${fmt(-diff)} pts less than you paid`
           : `worth exactly what you paid`;
-    $("#lootbox-result-detail").textContent = `Paid ${fmt(res.cost)} pts. This article is ${diffText}.`;
+    const paidText = res.cost > 0 ? `Paid ${fmt(res.cost)} pts.` : "Free pull.";
+    $("#lootbox-result-detail").textContent = `${paidText} This article is ${diffText}.`;
     $("#lootbox-result-view").href = `https://en.wikipedia.org/wiki/${h.article}`;
     $("#lootbox-result-portfolio").href = `#/article/${encodeURIComponent(h.article)}`;
     $("#lootbox-result").hidden = false;

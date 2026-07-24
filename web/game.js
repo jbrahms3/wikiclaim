@@ -610,18 +610,41 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
  */
 export const LOOTBOX_COST = 5000;
 
+// The site owner's account can open loot boxes for free (for testing/demoing
+// without burning real credits) - everyone else pays the normal cost.
+const FREE_LOOTBOX_EMAILS = new Set(["aidan.somsen@gmail.com"]);
+
+function isFreeLootboxAccount(user) {
+  return !!user?.email && FREE_LOOTBOX_EMAILS.has(user.email.toLowerCase());
+}
+
+// What GET /api/lootbox shows before anyone commits to opening one - needs
+// its own lookup since, unlike openLootBox, there's no other reason to have
+// fetched the user yet.
+export async function lootboxCostFor(userId) {
+  if (!userId) return LOOTBOX_COST;
+  return isFreeLootboxAccount(await store.getUser(userId)) ? 0 : LOOTBOX_COST;
+}
+
 // Wikipedia's random endpoint can hand back an article someone already
 // claimed, or one Wikimedia can't currently price - retry with a fresh
 // random pick rather than fail the whole box on the first miss.
 const LOOTBOX_MAX_ATTEMPTS = 8;
 
 export async function openLootBox(userId) {
-  const creditsLeft = await store.tryDebit(userId, LOOTBOX_COST);
-  if (creditsLeft === null) {
-    const user = await store.getUser(userId);
-    throw new Error(
-      `Not enough credits: a loot box costs ${LOOTBOX_COST}, you have ${user ? user.credits : 0}.`
-    );
+  const user = await store.getUser(userId);
+  // purchasePrice below must reflect what was actually paid, not the list
+  // price - a free pull's gain/loss is measured against a real cost of 0.
+  const cost = isFreeLootboxAccount(user) ? 0 : LOOTBOX_COST;
+
+  let creditsLeft = user ? user.credits : 0;
+  if (cost > 0) {
+    creditsLeft = await store.tryDebit(userId, cost);
+    if (creditsLeft === null) {
+      throw new Error(
+        `Not enough credits: a loot box costs ${LOOTBOX_COST}, you have ${user ? user.credits : 0}.`
+      );
+    }
   }
 
   for (let attempt = 0; attempt < LOOTBOX_MAX_ATTEMPTS; attempt++) {
@@ -653,7 +676,7 @@ export async function openLootBox(userId) {
       displayTitle: candidate.title,
       lang: "en",
       key: `en.wikipedia::${candidate.article}`,
-      purchasePrice: LOOTBOX_COST,
+      purchasePrice: cost,
       purchasedDate: today,
       lastSettledDate: today,
       totalEarned: 0,
@@ -666,16 +689,19 @@ export async function openLootBox(userId) {
     await logEvent(userId, "lootbox", {
       article: candidate.article,
       displayTitle: candidate.title,
-      amount: LOOTBOX_COST,
+      amount: cost,
     });
-    return { holding, cost: LOOTBOX_COST, marketValue: price.annualPrice, creditsLeft };
+    return { holding, cost, marketValue: price.annualPrice, creditsLeft };
   }
 
   // Never landed on a claimable article - refund rather than charge for nothing.
-  await store.addCredits(userId, LOOTBOX_COST);
-  throw new Error(
-    "Couldn't find an unclaimed article to give you right now. Your credits have been refunded - try again."
-  );
+  if (cost > 0) {
+    await store.addCredits(userId, cost);
+    throw new Error(
+      "Couldn't find an unclaimed article to give you right now. Your credits have been refunded - try again."
+    );
+  }
+  throw new Error("Couldn't find an unclaimed article to give you right now. Try again.");
 }
 
 export async function logEvent(userId, type, { article, displayTitle, amount } = {}) {

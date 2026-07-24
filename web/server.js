@@ -21,7 +21,7 @@ import {
   portfolioHistory,
   buyPage,
   openLootBox,
-  LOOTBOX_COST,
+  lootboxCostFor,
   leaderboard,
   recentActivity,
   logEvent,
@@ -592,7 +592,7 @@ app.post(
 app.get(
   "/api/lootbox",
   wrap(async (req, res) => {
-    res.json({ cost: LOOTBOX_COST });
+    res.json({ cost: await lootboxCostFor(req.userId) });
   })
 );
 
