@@ -721,7 +721,18 @@ export async function openLootBox(userId) {
       displayTitle: candidate.title,
       amount: cost,
     });
-    return { holding, cost, marketValue: price.annualPrice, creditsLeft };
+    return {
+      holding,
+      cost,
+      marketValue: price.annualPrice,
+      // Same live-price fields the article detail page shows - lets the
+      // result card be a real "here's what you got" view, not just a name.
+      changePct: price.changePct,
+      latestViews: price.latestViews,
+      spark: price.spark || null,
+      pendingLatest: !!price.pendingLatest,
+      creditsLeft,
+    };
   }
 
   // Never landed on a claimable article - refund rather than charge for nothing.

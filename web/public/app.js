@@ -2193,7 +2193,17 @@ $("#lootbox-open-btn").addEventListener("click", async () => {
   try {
     const res = await api("/api/lootbox", { method: "POST" });
     const h = res.holding;
+    $("#lootbox-result-thumb").innerHTML = thumbHtml(
+      { thumbnail: res.thumbnail, displayTitle: h.displayTitle },
+      "thumb"
+    );
     $("#lootbox-result-title").textContent = h.displayTitle;
+    $("#lootbox-result-desc").textContent = res.description || "Wikipedia article";
+    $("#lootbox-result-stats").innerHTML =
+      badgeHtml(res.changePct, res.pendingLatest) +
+      (res.latestViews != null
+        ? `<span class="lootbox-result-views">${fmt(res.latestViews)} views/day</span>`
+        : "");
     const diff = res.marketValue - res.cost;
     const diffText =
       diff > 0

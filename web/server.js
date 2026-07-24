@@ -602,7 +602,16 @@ app.post(
   forcedFetchLimiter,
   wrap(async (req, res) => {
     const result = await openLootBox(req.userId);
-    res.json({ ...result, portfolio: await portfolio(req.userId) });
+    // Thumbnail + description, same as every other article card in the app -
+    // decorate the just-claimed holding rather than making the frontend do a
+    // second round trip for it.
+    const meta = (await getPageMeta([result.holding.article])).get(result.holding.article) || {};
+    res.json({
+      ...result,
+      thumbnail: meta.thumbnail || null,
+      description: meta.description || null,
+      portfolio: await portfolio(req.userId),
+    });
   })
 );
 
