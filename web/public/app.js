@@ -1310,12 +1310,46 @@ $("#pts-range-tabs").addEventListener("click", (e) => {
   renderPointsChart();
 });
 
+// Article slots - see BASE_HOLDING_SLOTS/SLOT_PRICE_INCREMENT in game.js.
+// Reads state.me.holdingSlots (comes back on every /api/me), so this stays
+// in sync with whatever action last refreshed state.me - no separate fetch.
+function renderSlotsCard() {
+  const slots = state.me?.holdingSlots;
+  if (!slots) return;
+  $("#slots-max").textContent = slots.max;
+  $("#slots-used-label").textContent = `${slots.used} / ${slots.max} slots used`;
+  $("#slots-fill").style.width = `${Math.min(100, (slots.used / slots.max) * 100)}%`;
+  $("#slots-buy-btn").textContent = `Buy Slot — ${fmt(slots.nextCost)} pts`;
+}
+
+$("#slots-buy-btn").addEventListener("click", async () => {
+  const btn = $("#slots-buy-btn");
+  btn.disabled = true;
+  btn.textContent = "Buying…";
+  $("#slots-error").hidden = true;
+  try {
+    const res = await api("/api/slots/buy", { method: "POST" });
+    // Same pattern as every other trade action - a full /api/me refresh
+    // (not res.portfolio directly) keeps fields res.portfolio doesn't carry,
+    // like leaderboard rank, from going stale until the next full reload.
+    await refreshAfterTrade();
+    toast(`Bought a new article slot for ${fmt(res.cost)} pts.`);
+  } catch (err) {
+    $("#slots-error").textContent = err.message;
+    $("#slots-error").hidden = false;
+  } finally {
+    btn.disabled = false;
+    renderSlotsCard(); // re-derives the button label from current state either way
+  }
+});
+
 async function renderPointsPage() {
   $("#points-signedout").hidden = !authIsSignedOut();
   $("#points-content").hidden = !state.user;
   if (!state.user) return;
 
   if (state.me) $("#pts-balance").textContent = fmt(state.me.user.credits);
+  renderSlotsCard();
 
   const holder = $("#pts-chart");
   const tbody = $("#points-history-table tbody");

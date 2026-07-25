@@ -36,6 +36,7 @@ const rowToUser = (r) =>
         credits: r.credits,
         createdAt: r.created_at,
         needsUsername: r.needs_username,
+        purchasedSlots: r.purchased_slots,
       }
     : null;
 
@@ -201,6 +202,9 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       // Pulled from Clerk's profile at first-sign-in for welcome/marketing
       // emails (see email.js); Clerk still owns identity, this is just a copy.
       await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;`);
+      // Extra article slots bought beyond BASE_HOLDING_SLOTS (see game.js) -
+      // each one costs more than the last (SLOT_PRICE_INCREMENT * count).
+      await q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS purchased_slots INTEGER NOT NULL DEFAULT 0;`);
       await q(`
         CREATE TABLE IF NOT EXISTS holdings (
           id TEXT PRIMARY KEY,
@@ -479,6 +483,24 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
         [userId, delta]
       );
       return rows[0] ? rows[0].credits : null;
+    },
+    // Atomic price-and-debit in one statement: the cost (increment * the
+    // slot about to be bought) is computed from the row's own current
+    // purchased_slots under the same row lock as the debit, so two concurrent
+    // buys can't both price themselves off the same starting count - the
+    // second one naturally prices in the first one's new slot. `increment`
+    // is SLOT_PRICE_INCREMENT (game.js) - passed in rather than hardcoded so
+    // the store layer isn't a second place that price has to stay in sync.
+    async buySlot(userId, increment) {
+      const { rows } = await q(
+        `UPDATE users
+           SET purchased_slots = purchased_slots + 1,
+               credits = credits - ($2 * (purchased_slots + 1))
+         WHERE id = $1 AND credits >= ($2 * (purchased_slots + 1))
+         RETURNING purchased_slots, credits`,
+        [userId, increment]
+      );
+      return rows[0] ? { purchasedSlots: rows[0].purchased_slots, credits: rows[0].credits } : null;
     },
 
     // --- holdings ---

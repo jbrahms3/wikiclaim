@@ -29,6 +29,44 @@ const STARTING_CREDITS = 5000;
 // a real $25 gift card (fulfilled manually, outside the app).
 export const POINTS_GOAL = 1_000_000;
 
+// Everyone starts with BASE_HOLDING_SLOTS free article slots. Owning more
+// requires buying extra slots one at a time, each pricier than the last:
+// the 1st extra slot costs SLOT_PRICE_INCREMENT, the 2nd costs 2x that, the
+// 3rd 3x, and so on - unbounded. This applies to every way of GAINING a
+// holding (buyPage, loot box, buying a secondary-market listing); giving one
+// up (selling, listing) is never blocked by it.
+export const BASE_HOLDING_SLOTS = 10;
+export const SLOT_PRICE_INCREMENT = 250;
+
+// Cost of the NEXT slot a user would buy, given how many they've already
+// bought. purchasedSlots is 0-indexed going in, so the 1st purchase (0 -> 1)
+// costs 1x the increment, matching "250, then 500, then 750, ...".
+export function nextSlotCost(purchasedSlots) {
+  return SLOT_PRICE_INCREMENT * ((purchasedSlots || 0) + 1);
+}
+
+export function maxHoldingSlots(purchasedSlots) {
+  return BASE_HOLDING_SLOTS + (purchasedSlots || 0);
+}
+
+// Shared by every path that hands a user a new holding (buyPage, loot box,
+// buying a secondary-market listing) - fails fast, before any Wikimedia
+// lookup or debit, so a user at their cap never pays for a fetch or a
+// listing claim that was always going to be refused.
+async function assertHasFreeSlot(userId) {
+  const [user, holdings] = await Promise.all([
+    store.getUser(userId),
+    store.holdingsForUser(userId),
+  ]);
+  const max = maxHoldingSlots(user?.purchasedSlots);
+  if (holdings.length >= max) {
+    throw new Error(
+      `You've used all ${max} of your article slots. Buy another slot for ` +
+        `${nextSlotCost(user?.purchasedSlots)} pts to hold more (see the Slots page).`
+    );
+  }
+}
+
 function fmtDate(d) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}`;
@@ -499,6 +537,29 @@ export async function portfolio(userId) {
     // frontend uses it to quietly re-poll instead of leaving a manual
     // refresh as the only way to see the credited amount.
     settling,
+    holdingSlots: {
+      used: items.length,
+      max: maxHoldingSlots(user.purchasedSlots),
+      nextCost: nextSlotCost(user.purchasedSlots),
+    },
+  };
+}
+
+/** Buy one more article slot. Throws Error with a user-facing message on failure. */
+export async function buySlot(userId) {
+  const result = await store.buySlot(userId, SLOT_PRICE_INCREMENT);
+  if (!result) {
+    const user = await store.getUser(userId);
+    const cost = nextSlotCost(user?.purchasedSlots);
+    throw new Error(
+      `Not enough credits: an extra slot costs ${cost}, you have ${user ? user.credits : 0}.`
+    );
+  }
+  return {
+    purchasedSlots: result.purchasedSlots,
+    credits: result.credits,
+    cost: SLOT_PRICE_INCREMENT * result.purchasedSlots,
+    max: maxHoldingSlots(result.purchasedSlots),
   };
 }
 
@@ -535,6 +596,7 @@ export async function buyPage(userId, { project, article, displayTitle, lang }) 
   if (await store.findHolding(userId, project, article)) {
     throw new Error("You already own this page.");
   }
+  await assertHasFreeSlot(userId);
   // Ownership is exclusive: once anyone owns an article, it's off the
   // primary market - the only way to get it is to buy their listing on the
   // secondary market (if they've made one). This early check is just a fast
@@ -663,6 +725,7 @@ const LOOTBOX_MAX_ATTEMPTS = 8;
 
 export async function openLootBox(userId) {
   const user = await store.getUser(userId);
+  await assertHasFreeSlot(userId); // before any debit - a full box shouldn't cost a thing
   // purchasePrice below must reflect what was actually paid, not the list
   // price - a free pull's gain/loss is measured against a real cost of 0.
   const cost = isFreeLootboxAccount(user) ? 0 : LOOTBOX_COST;
@@ -915,6 +978,7 @@ export async function buyListing(userId, listingId) {
   if (await store.findHolding(userId, listing.project, listing.article)) {
     throw new Error("You already own this article.");
   }
+  await assertHasFreeSlot(userId);
 
   // Atomic delete-and-return - a concurrent double-buy can only win once.
   const claimed = await store.claimListing(listingId);

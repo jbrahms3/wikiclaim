@@ -136,6 +136,21 @@ export function createJsonStore() {
       persist();
       return u.credits;
     },
+    // Same atomic-price-and-debit contract as pg-store's buySlot: cost is
+    // `increment` * the slot about to be bought (purchasedSlots + 1). Fully
+    // synchronous with no await between read and write, so it's race-proof
+    // the same way the other atomic guards in this store are.
+    async buySlot(userId, increment) {
+      const u = db.users[userId];
+      if (!u) return null;
+      const purchasedSlots = u.purchasedSlots || 0;
+      const cost = increment * (purchasedSlots + 1);
+      if (u.credits < cost) return null;
+      u.purchasedSlots = purchasedSlots + 1;
+      u.credits -= cost;
+      persist();
+      return { purchasedSlots: u.purchasedSlots, credits: u.credits };
+    },
 
     // --- holdings ---
     async holdingsForUser(userId) {

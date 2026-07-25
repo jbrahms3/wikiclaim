@@ -32,6 +32,7 @@ import {
   cancelListing,
   browseListings,
   buyListing,
+  buySlot,
   publicUser,
   ESCROW_FLAG_AMOUNT,
   ESCROW_FLAG_STREAK_DAYS,
@@ -648,6 +649,16 @@ app.post(
   requireAuth,
   wrap(async (req, res) => {
     const result = await buyListing(req.userId, req.params.id);
+    res.json({ ...result, portfolio: await portfolio(req.userId) });
+  })
+);
+
+// --- article slots (see BASE_HOLDING_SLOTS/SLOT_PRICE_INCREMENT in game.js) ---
+app.post(
+  "/api/slots/buy",
+  requireAuth,
+  wrap(async (req, res) => {
+    const result = await buySlot(req.userId);
     res.json({ ...result, portfolio: await portfolio(req.userId) });
   })
 );
