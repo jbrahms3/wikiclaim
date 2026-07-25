@@ -240,6 +240,16 @@ export function createJsonStore() {
       delete db.holdings[id];
       persist();
     },
+    // Atomic delete-and-return, scoped to the claimed owner - used by
+    // scrapHolding so a concurrent double-scrap can only pay out once.
+    // Fully synchronous with no await between check and delete.
+    async deleteHoldingIfOwned(id, userId) {
+      const h = db.holdings[id];
+      if (!h || h.userId !== userId) return null;
+      delete db.holdings[id];
+      persist();
+      return copy(h);
+    },
     // --- anti-botting escrow review (see game.js's contiguousSettlement) ---
     async listFlaggedHoldings() {
       return Object.values(db.holdings)

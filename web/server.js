@@ -32,6 +32,7 @@ import {
   cancelListing,
   browseListings,
   buyListing,
+  scrapHolding,
   buySlot,
   publicUser,
   ESCROW_FLAG_AMOUNT,
@@ -649,6 +650,19 @@ app.post(
   requireAuth,
   wrap(async (req, res) => {
     const result = await buyListing(req.userId, req.params.id);
+    res.json({ ...result, portfolio: await portfolio(req.userId) });
+  })
+);
+
+// Scrap: give up an owned article for half its current market value, no
+// buyer needed - the alternative to listing it and waiting (see
+// scrapHolding in game.js).
+app.post(
+  "/api/holdings/:id/scrap",
+  requireAuth,
+  forcedFetchLimiter,
+  wrap(async (req, res) => {
+    const result = await scrapHolding(req.userId, req.params.id);
     res.json({ ...result, portfolio: await portfolio(req.userId) });
   })
 );

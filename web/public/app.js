@@ -1189,6 +1189,9 @@ function feedItemHtml(ev) {
     text = `${user}'s prediction on <b>${title}</b> paid out ${fmt(ev.amount)} pts`;
   } else if (ev.type === "resale") {
     text = `${user} bought <b>${title}</b> on the secondary market for ${fmt(ev.amount)} pts`;
+  } else if (ev.type === "scrap") {
+    dot = "sell";
+    text = `${user} scrapped <b>${title}</b> for ${fmt(ev.amount)} pts`;
   } else if (ev.type === "lootbox") {
     text = `${user} opened a loot box and got <b>${title}</b>`;
   } else if (ev.type === "earn") {
@@ -2007,11 +2010,28 @@ function renderDetailActions() {
   const d = state.detail;
   if (!d) return;
   const actionBtn = $("#det-action");
+  const scrapBtn = $("#det-scrap");
   const watchBtn = $("#det-watch");
 
+  // Scrap only ever applies to something you currently hold.
+  scrapBtn.hidden = !d.holding;
   if (d.holding) {
-    // No instant sell-back to the market - the only way to give up an
-    // article is to list it and wait for another player to buy it.
+    if (d.price == null) {
+      scrapBtn.textContent = "Scrap";
+      scrapBtn.disabled = true;
+      scrapBtn.onclick = null;
+    } else {
+      const payout = Math.round(d.price / 2);
+      scrapBtn.textContent = `Scrap for ${fmt(payout)} pts`;
+      scrapBtn.disabled = false;
+      scrapBtn.onclick = () => scrapAction(d.holding.id, d.displayTitle, payout);
+    }
+  }
+
+  if (d.holding) {
+    // Two ways to give up an article: list it and wait for a buyer (a real
+    // peer-to-peer trade, potentially for more), or scrap it for an instant,
+    // guaranteed half-value payout with no buyer needed (button above).
     if (d.listing) {
       actionBtn.textContent = `Cancel Listing (asked ${fmt(d.listing.askPrice)})`;
       actionBtn.disabled = false;
@@ -2159,6 +2179,44 @@ $("#claim-confirm-submit").addEventListener("click", async () => {
   const { r, btn } = pendingClaim;
   closeClaimConfirmModal();
   await performBuy(r, btn);
+});
+
+// Scrapping is instant and permanent (no listing to cancel afterward) -
+// confirm with the same in-app-modal pattern as claiming.
+let pendingScrap = null; // { holdingId, title } while the modal is open
+
+function scrapAction(holdingId, title, payout) {
+  pendingScrap = { holdingId, title };
+  $("#scrap-confirm-text").textContent = `Scrap "${title}" for ${fmt(payout)} pts?`;
+  $("#scrap-confirm-modal").hidden = false;
+}
+
+function closeScrapConfirmModal() {
+  $("#scrap-confirm-modal").hidden = true;
+  pendingScrap = null;
+}
+
+$("#scrap-confirm-cancel").addEventListener("click", closeScrapConfirmModal);
+$("#scrap-confirm-modal").addEventListener("click", (e) => {
+  if (e.target.id === "scrap-confirm-modal") closeScrapConfirmModal(); // click on the backdrop
+});
+
+$("#scrap-confirm-submit").addEventListener("click", async () => {
+  if (!pendingScrap) return;
+  const { holdingId, title } = pendingScrap;
+  closeScrapConfirmModal();
+  try {
+    const res = await api(`/api/holdings/${holdingId}/scrap`, { method: "POST" });
+    toast(`Scrapped "${title}" for ${fmt(res.payout)} pts.`);
+    await refreshAfterTrade();
+    if (state.route.page === "article" && state.detail?.article === res.article) {
+      renderArticlePage(res.article);
+    } else {
+      renderRoute();
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
 });
 
 async function performBuy(r, btn) {

@@ -1045,6 +1045,47 @@ export async function buyListing(userId, listingId) {
   return { holding: newHolding, price: claimed.askPrice, creditsLeft };
 }
 
+// Scrapping trades the exclusivity of ownership (and any further earnings)
+// for an instant, guaranteed payout - the alternative to listing an article
+// and waiting for another player to want it. Priced below the real market
+// value on purpose: an instant no-buyer-needed exit is worth less than a
+// real sale, and it keeps scrap-and-rebuy from being a free way to reset a
+// holding's purchasePrice/earnings history.
+const SCRAP_PAYOUT_FRACTION = 0.5;
+
+/** Give up an owned article for half its current market value. Throws Error with a user-facing message on failure. */
+export async function scrapHolding(userId, holdingId) {
+  const holding = await store.getHolding(holdingId);
+  if (!holding || holding.userId !== userId) {
+    throw new Error("You don't own that page.");
+  }
+  // Always re-verify against live data - refuse to pay out against a stale
+  // or bogus price, same reasoning as buying.
+  const price = await getPagePrice(holding.project, holding.article, { force: true });
+  if (price.unpriced) {
+    throw new Error(
+      "Couldn't verify this article's traffic right now (Wikimedia's stats API returned no data). Try again in a few seconds."
+    );
+  }
+  const payout = Math.round(price.annualPrice * SCRAP_PAYOUT_FRACTION);
+
+  // Atomic delete-and-return, scoped to this owner - a concurrent
+  // double-scrap (e.g. a double-click) can only pay out once.
+  const deleted = await store.deleteHoldingIfOwned(holdingId, userId);
+  if (!deleted) throw new Error("This article was already scrapped, or it's no longer yours.");
+  // The holding it referenced no longer exists - clear any active listing
+  // rather than leave one dangling (claimListing is a no-op if there wasn't one).
+  await store.claimListing(holdingId);
+
+  await store.addCredits(userId, payout);
+  await logEvent(userId, "scrap", {
+    article: holding.article,
+    displayTitle: holding.displayTitle,
+    amount: payout,
+  });
+  return { article: holding.article, displayTitle: holding.displayTitle, payout, marketValue: price.annualPrice };
+}
+
 /** Leaderboard by net worth (credits + current value of all holdings). */
 export async function leaderboard() {
   const users = await store.allUsers();

@@ -30,12 +30,13 @@ when you're ready to move on, and climb the shared net-worth leaderboard.
   data with about a 1-day lag, so today's earnings show up tomorrow. A page
   owned for N days earns exactly N days of real traffic, and it works even if
   the server was offline.
-- **There's no instant sell-back to the market.** The only way to give up a
-  page is to list it on the **secondary market** at any price you choose and
-  wait for another player to buy it. Unlike buying (credits sink), a resale
-  is a genuine peer-to-peer trade — the buyer's payment goes straight to you,
-  creating or destroying no credits. The buyer becomes the new owner and
-  starts earning fresh from the day they buy.
+- **Giving up a page**: two ways. **List** it on the **secondary market** at
+  any price you choose and wait for another player to buy it — a genuine
+  peer-to-peer trade, the buyer's payment goes straight to you, creating or
+  destroying no credits, and the buyer becomes the new owner starting fresh
+  from the day they buy. Or **scrap** it for an instant, guaranteed payout of
+  half its current market value, no buyer needed — the page returns to the
+  primary market, unowned.
 - **Net worth** = credits + current value of all your pages. The leaderboard
   ranks everyone by net worth.
 - **Predictions**: instead of owning a page, stake credits on whether its

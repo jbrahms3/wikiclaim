@@ -555,14 +555,16 @@
               </div>
 
               <div class="card about-card">
-                <h2>Selling: the secondary market</h2>
+                <h2>Giving up an article: listing or scrapping</h2>
                 <p>
-                  There's no instant sell-back to the market. The only way to give up an
-                  article is to <strong>list</strong> it for resale at any price you choose,
-                  and wait for another player to buy it. Every article currently for sale can
-                  be found on the Secondary Market tab of the Market page, or turns up
-                  naturally in search results and on the Discover page. The buyer's payment
-                  goes straight to you — a genuine peer-to-peer trade, not a market payout.
+                  Two ways to give up an article. <strong>List</strong> it for resale at any
+                  price you choose and wait for another player to buy it — every article
+                  currently for sale can be found on the Secondary Market tab of the Market
+                  page, or turns up naturally in search results and on the Discover page. The
+                  buyer's payment goes straight to you — a genuine peer-to-peer trade, not a
+                  market payout. Or <strong>scrap</strong> it for an instant, guaranteed payout
+                  of half its current market value — no buyer needed, but you get less than a
+                  real sale. The article goes back to being unowned on the primary market.
                 </p>
               </div>
 
@@ -623,6 +625,7 @@
               </div>
               <div class="detail-actions">
                 <button class="btn-primary" id="det-action">—</button>
+                <button class="btn-ghost" id="det-scrap" hidden>Scrap</button>
                 <button class="btn-ghost" id="det-watch">Watch</button>
                 <a class="btn-ghost" id="det-wiki" target="_blank" rel="noopener">Read on Wikipedia</a>
               </div>
@@ -706,6 +709,21 @@
         <div class="modal-actions">
           <button class="btn-ghost" type="button" id="claim-confirm-cancel">Cancel</button>
           <button class="btn-primary" type="button" id="claim-confirm-submit">Claim</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="scrap-confirm-modal" hidden>
+      <div class="modal-card">
+        <h2>Confirm scrap</h2>
+        <p class="page-hint" id="scrap-confirm-text"></p>
+        <p class="page-hint">
+          You give up ownership for good — this is instant and can't be undone. Listing it for
+          resale instead could get you more, but needs a buyer.
+        </p>
+        <div class="modal-actions">
+          <button class="btn-ghost" type="button" id="scrap-confirm-cancel">Cancel</button>
+          <button class="btn-primary" type="button" id="scrap-confirm-submit">Scrap</button>
         </div>
       </div>
     </div>

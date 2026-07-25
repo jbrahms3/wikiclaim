@@ -609,6 +609,16 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
     async deleteHolding(id) {
       await q(`DELETE FROM holdings WHERE id = $1`, [id]);
     },
+    // Atomic delete-and-return, scoped to the claimed owner - used by
+    // scrapHolding so a concurrent double-scrap can only pay out once (the
+    // second call's WHERE matches nothing and gets null back).
+    async deleteHoldingIfOwned(id, userId) {
+      const { rows } = await q(
+        `DELETE FROM holdings WHERE id = $1 AND user_id = $2 RETURNING *`,
+        [id, userId]
+      );
+      return rowToHolding(rows[0]);
+    },
     // --- anti-botting escrow review (see game.js's contiguousSettlement) ---
     async listFlaggedHoldings() {
       const { rows } = await q(
