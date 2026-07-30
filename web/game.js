@@ -49,6 +49,21 @@ export function maxHoldingSlots(purchasedSlots) {
   return BASE_HOLDING_SLOTS + (purchasedSlots || 0);
 }
 
+// The slot cap only started being enforced once this feature shipped - an
+// account that already owned more than BASE_HOLDING_SLOTS articles before
+// then has purchasedSlots stuck at 0 despite already being way over the base
+// cap. Pricing nextSlotCost off that raw 0 would mean literally buying every
+// slot from #1 up through however many they need, one at a time, at
+// increasing prices - the SUM of that whole staircase (e.g. a legacy
+// 138-holding account facing 129 slots: 250*(1+2+...+129) = 2,096,250 pts)
+// rather than a single marginal step. Those pre-cap holdings are grandfathered
+// in for free instead: the effective baseline floors at "however many slots
+// it actually takes to cover what they already own," so the next slot they
+// buy is priced as one normal step from there, not the retroactive sum.
+export function effectivePurchasedSlots(purchasedSlots, holdingsCount) {
+  return Math.max(purchasedSlots || 0, (holdingsCount || 0) - BASE_HOLDING_SLOTS, 0);
+}
+
 // Shared by every path that hands a user a new holding (buyPage, loot box,
 // buying a secondary-market listing) - fails fast, before any Wikimedia
 // lookup or debit, so a user at their cap never pays for a fetch or a
@@ -58,11 +73,12 @@ async function assertHasFreeSlot(userId) {
     store.getUser(userId),
     store.holdingsForUser(userId),
   ]);
-  const max = maxHoldingSlots(user?.purchasedSlots);
+  const effective = effectivePurchasedSlots(user?.purchasedSlots, holdings.length);
+  const max = maxHoldingSlots(effective);
   if (holdings.length >= max) {
     throw new Error(
       `You've used all ${max} of your article slots. Buy another slot for ` +
-        `${nextSlotCost(user?.purchasedSlots)} pts to hold more (see the Slots page).`
+        `${nextSlotCost(effective)} pts to hold more (see the Slots page).`
     );
   }
 }
@@ -537,28 +553,52 @@ export async function portfolio(userId) {
     // frontend uses it to quietly re-poll instead of leaving a manual
     // refresh as the only way to see the credited amount.
     settling,
-    holdingSlots: {
-      used: items.length,
-      max: maxHoldingSlots(user.purchasedSlots),
-      nextCost: nextSlotCost(user.purchasedSlots),
-    },
+    holdingSlots: (() => {
+      const effective = effectivePurchasedSlots(user.purchasedSlots, items.length);
+      return {
+        used: items.length,
+        max: maxHoldingSlots(effective),
+        nextCost: nextSlotCost(effective),
+      };
+    })(),
   };
 }
 
 /** Buy one more article slot. Throws Error with a user-facing message on failure. */
 export async function buySlot(userId) {
-  const result = await store.buySlot(userId, SLOT_PRICE_INCREMENT);
+  const [user, holdings] = await Promise.all([
+    store.getUser(userId),
+    store.holdingsForUser(userId),
+  ]);
+  if (!user) throw new Error("Not signed in.");
+  const rawPurchased = user.purchasedSlots || 0;
+  const effective = effectivePurchasedSlots(rawPurchased, holdings.length);
+  const cost = nextSlotCost(effective);
+  // Compare-and-set on the raw stored value: if a legacy account is
+  // grandfathered above it (effective > rawPurchased), this single purchase
+  // "fast forwards" the stored counter straight to effective + 1 rather than
+  // requiring separate purchases for every slot in between - those earlier
+  // slots were never actually bought, they're implicitly covered by holdings
+  // already owned before the cap existed.
+  const result = await store.setPurchasedSlots(userId, {
+    expected: rawPurchased,
+    next: effective + 1,
+    cost,
+  });
   if (!result) {
-    const user = await store.getUser(userId);
-    const cost = nextSlotCost(user?.purchasedSlots);
-    throw new Error(
-      `Not enough credits: an extra slot costs ${cost}, you have ${user ? user.credits : 0}.`
-    );
+    // Distinguish "can't afford it" from "someone/something already changed
+    // your slots" (e.g. a double-click racing itself) rather than assuming
+    // it's always a credits problem.
+    const fresh = await store.getUser(userId);
+    if (fresh && fresh.credits < cost) {
+      throw new Error(`Not enough credits: an extra slot costs ${cost}, you have ${fresh.credits}.`);
+    }
+    throw new Error("Your slots just changed - try again.");
   }
   return {
     purchasedSlots: result.purchasedSlots,
     credits: result.credits,
-    cost: SLOT_PRICE_INCREMENT * result.purchasedSlots,
+    cost,
     max: maxHoldingSlots(result.purchasedSlots),
   };
 }

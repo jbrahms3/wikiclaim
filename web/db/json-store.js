@@ -136,17 +136,18 @@ export function createJsonStore() {
       persist();
       return u.credits;
     },
-    // Same atomic-price-and-debit contract as pg-store's buySlot: cost is
-    // `increment` * the slot about to be bought (purchasedSlots + 1). Fully
-    // synchronous with no await between read and write, so it's race-proof
-    // the same way the other atomic guards in this store are.
-    async buySlot(userId, increment) {
+    // Same compare-and-set contract as pg-store's setPurchasedSlots: `expected`/
+    // `next`/`cost` are computed app-side in game.js's buySlot (pricing a
+    // legacy grandfathered account's next slot needs their holdings count,
+    // which isn't tracked here). Fully synchronous with no await between
+    // check and write, so it's race-proof the same way the other atomic
+    // guards in this store are.
+    async setPurchasedSlots(userId, { expected, next, cost }) {
       const u = db.users[userId];
       if (!u) return null;
-      const purchasedSlots = u.purchasedSlots || 0;
-      const cost = increment * (purchasedSlots + 1);
+      if ((u.purchasedSlots || 0) !== expected) return null;
       if (u.credits < cost) return null;
-      u.purchasedSlots = purchasedSlots + 1;
+      u.purchasedSlots = next;
       u.credits -= cost;
       persist();
       return { purchasedSlots: u.purchasedSlots, credits: u.credits };

@@ -484,21 +484,21 @@ export function createPgStore({ pgModule = pg, pool: injectedPool } = {}) {
       );
       return rows[0] ? rows[0].credits : null;
     },
-    // Atomic price-and-debit in one statement: the cost (increment * the
-    // slot about to be bought) is computed from the row's own current
-    // purchased_slots under the same row lock as the debit, so two concurrent
-    // buys can't both price themselves off the same starting count - the
-    // second one naturally prices in the first one's new slot. `increment`
-    // is SLOT_PRICE_INCREMENT (game.js) - passed in rather than hardcoded so
-    // the store layer isn't a second place that price has to stay in sync.
-    async buySlot(userId, increment) {
+    // Compare-and-set: only writes if purchased_slots still equals `expected`
+    // (what the caller read it as) and credits can cover `cost` - both
+    // computed app-side in game.js's buySlot, since pricing a legacy
+    // grandfathered account's next slot depends on their holdings count,
+    // which this table doesn't have. A concurrent change (another buy, or a
+    // stale read) fails the WHERE and returns null rather than silently
+    // pricing off data that's since moved.
+    async setPurchasedSlots(userId, { expected, next, cost }) {
       const { rows } = await q(
         `UPDATE users
-           SET purchased_slots = purchased_slots + 1,
-               credits = credits - ($2 * (purchased_slots + 1))
-         WHERE id = $1 AND credits >= ($2 * (purchased_slots + 1))
+           SET purchased_slots = $3,
+               credits = credits - $4
+         WHERE id = $1 AND purchased_slots = $2 AND credits >= $4
          RETURNING purchased_slots, credits`,
-        [userId, increment]
+        [userId, expected, next, cost]
       );
       return rows[0] ? { purchasedSlots: rows[0].purchased_slots, credits: rows[0].credits } : null;
     },
