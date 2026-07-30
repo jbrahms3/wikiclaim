@@ -167,6 +167,11 @@
                   <button class="btn-primary" id="ov-signin-btn">Sign In to Start Trading</button>
                 </div>
 
+                <div class="card auth-loading" id="ov-loading" hidden>
+                  <div class="spinner"></div>
+                  <p>Loading your portfolio…</p>
+                </div>
+
                 <div id="ov-content" hidden>
                   <div class="overview-top">
                     <div class="card chart-card">
@@ -237,6 +242,11 @@
             <div class="card signin-prompt" id="points-signedout" hidden>
               <p>Sign in to track your points, earnings history, and progress toward the reward.</p>
               <button class="btn-primary" id="points-signin-btn">Sign In</button>
+            </div>
+
+            <div class="card auth-loading" id="points-loading" hidden>
+              <div class="spinner"></div>
+              <p>Loading your points…</p>
             </div>
 
             <div id="points-content" hidden>
@@ -357,6 +367,11 @@
               <button class="btn-primary" id="lootbox-signin-btn">Sign In</button>
             </div>
 
+            <div class="card auth-loading" id="lootbox-loading" hidden>
+              <div class="spinner"></div>
+              <p>Loading…</p>
+            </div>
+
             <div id="lootbox-content" hidden>
               <div class="card lootbox-hero">
                 <div class="lootbox-box" id="lootbox-box">🎁</div>
@@ -427,6 +442,10 @@
               <p>Sign in to build a watchlist.</p>
               <button class="btn-primary" id="watchlist-signin-btn">Sign In</button>
             </div>
+            <div class="card auth-loading" id="watchlist-loading" hidden>
+              <div class="spinner"></div>
+              <p>Loading your watchlist…</p>
+            </div>
             <div class="card table-card" id="watchlist-content" hidden>
               <table class="table" id="watchlist-table">
                 <thead>
@@ -452,6 +471,10 @@
             <div class="card signin-prompt" id="predictions-signedout" hidden>
               <p>Sign in to place predictions and see your results.</p>
               <button class="btn-primary" id="predictions-signin-btn">Sign In</button>
+            </div>
+            <div class="card auth-loading" id="predictions-loading" hidden>
+              <div class="spinner"></div>
+              <p>Loading your predictions…</p>
             </div>
             <div class="stack" id="predictions-content" hidden>
               <div class="card table-card">

@@ -353,6 +353,20 @@ function authIsSignedOut() {
   return state.authStatus === "signedOut" || state.authStatus === "error";
 }
 
+// Shared 3-way state for every page gated on having an account loaded
+// (Overview, Points, Loot Box, Watchlist, Predictions): "sign in to see
+// this" / "loading" / real content. The middle state used to not exist -
+// the page just stayed blank from the moment a Clerk session was found
+// until the first /api/me resolved, which reads as the app being stuck
+// rather than working. state.user and state.me are always set together
+// (see loadMe/syncUser), so either is an equally valid "loaded" check.
+function renderAuthGate(prefix) {
+  const hasContent = !!state.user;
+  $(`#${prefix}-signedout`).hidden = !authIsSignedOut();
+  $(`#${prefix}-loading`).hidden = hasContent || !authIsPending();
+  $(`#${prefix}-content`).hidden = !hasContent;
+}
+
 // Gate for any action that needs an account (buy, sell, list, predict,
 // watch...). Opens Clerk's sign-in modal on demand instead of a full-page
 // gate - browsing works with no account at all. Returns whether the caller
@@ -996,8 +1010,7 @@ $("#search-form").addEventListener("submit", (e) => {
 
 function renderOverview() {
   const me = state.me;
-  $("#ov-signedout").hidden = !authIsSignedOut();
-  $("#ov-content").hidden = !me;
+  renderAuthGate("ov");
 
   // These sections are public data - render regardless of sign-in.
   renderMovers();
@@ -1347,8 +1360,7 @@ $("#slots-buy-btn").addEventListener("click", async () => {
 });
 
 async function renderPointsPage() {
-  $("#points-signedout").hidden = !authIsSignedOut();
-  $("#points-content").hidden = !state.user;
+  renderAuthGate("points");
   if (!state.user) return;
 
   if (state.me) $("#pts-balance").textContent = fmt(state.me.user.credits);
@@ -1769,8 +1781,7 @@ function loadListings() {
 /* ================= watchlist page ================= */
 
 function renderWatchlistPage() {
-  $("#watchlist-signedout").hidden = !authIsSignedOut();
-  $("#watchlist-content").hidden = !state.user;
+  renderAuthGate("watchlist");
   if (!state.user) return;
 
   const tbody = $("#watchlist-table tbody");
@@ -1832,8 +1843,7 @@ function estimatePayout(b, currentViews) {
 /* ================= predictions page ================= */
 
 function renderPredictionsPage() {
-  $("#predictions-signedout").hidden = !authIsSignedOut();
-  $("#predictions-content").hidden = !state.user;
+  renderAuthGate("predictions");
   if (!state.user) return;
 
   const open = state.bets.open;
@@ -2252,8 +2262,7 @@ let lootboxCost = 100; // refreshed from /api/lootbox; this is just the initial 
 const lootboxCostText = () => (lootboxCost > 0 ? `${fmt(lootboxCost)} pts` : "Free");
 
 function renderLootboxPage() {
-  $("#lootbox-signedout").hidden = !authIsSignedOut();
-  $("#lootbox-content").hidden = !state.user;
+  renderAuthGate("lootbox");
   $("#lootbox-error").hidden = true;
   $("#lootbox-result").hidden = true;
   if (!state.user) return;
