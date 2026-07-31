@@ -36,11 +36,11 @@ export const POINTS_GOAL = 1_000_000;
 // holding (buyPage, loot box, buying a secondary-market listing); giving one
 // up (selling, listing) is never blocked by it.
 export const BASE_HOLDING_SLOTS = 10;
-export const SLOT_PRICE_INCREMENT = 250;
+export const SLOT_PRICE_INCREMENT = 100;
 
 // Cost of the NEXT slot a user would buy, given how many they've already
 // bought. purchasedSlots is 0-indexed going in, so the 1st purchase (0 -> 1)
-// costs 1x the increment, matching "250, then 500, then 750, ...".
+// costs 1x the increment, matching "100, then 200, then 300, ...".
 export function nextSlotCost(purchasedSlots) {
   return SLOT_PRICE_INCREMENT * ((purchasedSlots || 0) + 1);
 }
@@ -54,8 +54,9 @@ export function maxHoldingSlots(purchasedSlots) {
 // then has purchasedSlots stuck at 0 despite already being way over the base
 // cap. Pricing nextSlotCost off that raw 0 would mean literally buying every
 // slot from #1 up through however many they need, one at a time, at
-// increasing prices - the SUM of that whole staircase (e.g. a legacy
-// 138-holding account facing 129 slots: 250*(1+2+...+129) = 2,096,250 pts)
+// increasing prices - the SUM of that whole staircase (e.g. under the 250/
+// slot pricing in effect when this bug was found, a legacy 138-holding
+// account facing 129 slots was quoted 250*(1+2+...+129) = 2,096,250 pts)
 // rather than a single marginal step. Those pre-cap holdings are grandfathered
 // in for free instead: the effective baseline floors at "however many slots
 // it actually takes to cover what they already own," so the next slot they
